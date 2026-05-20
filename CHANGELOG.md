@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.1 — 2026-05-20
+
+- **Watcher startup is now deterministic.** The declarative `monitors/` entry has been removed; `bus.py register` now prints the exact `Monitor` tool invocation in its stdout, and `SKILL.md` instructs the agent to call it after every successful register. Previously the declarative `when: "on-skill-invoke"` trigger fired inconsistently — some sessions never got a live watcher and silently dropped messages.
+- Added `~/.claude/bus/watch.py` to the stable-symlink set maintained by SessionStart and `bus.py register`.
+- Removed redundant `version` field from `.claude-plugin/marketplace.json`'s plugin entry — `plugin.json` is the single source of truth.
+
 ## 0.1.0 — 2026-05-19
 
 Initial release.

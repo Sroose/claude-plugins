@@ -1,8 +1,1 @@
-[
-  {
-    "name": "agent-bus-inbox",
-    "description": "agent-bus: incoming message",
-    "when": "on-skill-invoke:agent-bus:agent",
-    "command": "S=\"${CLAUDE_PLUGIN_ROOT}/skills/agent/watch.py\"; [ -f \"$S\" ] || S=$(find \"$HOME/.claude\" -path '*agent-bus*/skills/agent/watch.py' 2>/dev/null | head -1); [ -f \"$S\" ] && exec python3 \"$S\" || { echo 'agent-bus: watch.py not found' >&2; exit 1; }"
-  }
-]
+[]

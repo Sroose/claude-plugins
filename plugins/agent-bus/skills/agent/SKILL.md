@@ -11,7 +11,7 @@ A thin Bash shim over `python3 ~/.claude/bus/bus.py`. Do not extend-think, do no
 
 | User says | Run this exact Bash command |
 |---|---|
-| `register [me as] <NAME>` or `/agent register <NAME>` | `python3 ~/.claude/bus/bus.py register <NAME>` |
+| `register [me as] <NAME>` or `/agent register <NAME>` | `python3 ~/.claude/bus/bus.py register <NAME>` **then** start the inbox watcher (see below) |
 | `unregister` or `/agent unregister` | `python3 ~/.claude/bus/bus.py unregister` |
 | `whoami`, `who am I` or `/agent whoami` | `python3 ~/.claude/bus/bus.py whoami` |
 | `list [agents]` or `/agent list` | `python3 ~/.claude/bus/bus.py list` |
@@ -26,6 +26,18 @@ If `~/.claude/bus/bus.py` doesn't exist (symlink missing — rare), find the rea
 ```bash
 python3 $(find ~/.claude -name bus.py -path '*agent-bus*' 2>/dev/null | head -1) <subcommand> <args>
 ```
+
+## After a successful `register` — start the inbox watcher
+
+The `register` row above says "**then** start the inbox watcher." That step is required for this session to receive any incoming messages. After `bus.py register <NAME>` prints `registered as <NAME>`, **call the `Monitor` tool** with:
+
+- `command`: `python3 ~/.claude/bus/watch.py`
+- `description`: `agent-bus: incoming messages for <NAME>`
+- `persistent`: `true`
+
+The helper's stdout also prints these parameters back at you under a `📡 NEXT STEP` heading — copy them. The watcher runs `inotifywait` (or `fswatch` or shell-poll) on the inbox, pre-filters by your registered name, and emits a `📨 from …` notification per addressed message. Without this `Monitor` call, no notifications will arrive in this session and the user will silently miss messages.
+
+If `whoami` already returns a name when the user invokes `register` (e.g. SessionStart auto-rebound), still start the Monitor — the SessionStart hook writes the registry but cannot itself call Claude tools, so the watcher is your responsibility.
 
 ## Three rules that override everything else
 

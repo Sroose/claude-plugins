@@ -16,12 +16,12 @@ from pathlib import Path
 PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 SKILL_DIR = PLUGIN_ROOT / "skills" / "agent"
 
-# (1) Maintain stable symlinks for bus.py and PROTOCOL.md so SKILL.md /
-# users have fixed invocation paths.
+# (1) Maintain stable symlinks for bus.py, PROTOCOL.md, and watch.py so
+# SKILL.md, the user, and the Monitor-tool command have fixed invocation paths.
 try:
     bus_dir = Path.home() / ".claude" / "bus"
     bus_dir.mkdir(parents=True, exist_ok=True)
-    for name in ("bus.py", "PROTOCOL.md"):
+    for name in ("bus.py", "PROTOCOL.md", "watch.py"):
         target = SKILL_DIR / name
         link = bus_dir / name
         if link.is_symlink() or link.exists():

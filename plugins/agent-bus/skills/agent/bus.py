@@ -115,7 +115,7 @@ def cmd_register(args):
     # for this session yet — register is a natural recovery point.
     try:
         skill_dir = Path(__file__).resolve().parent
-        for fname in ("bus.py", "PROTOCOL.md"):
+        for fname in ("bus.py", "PROTOCOL.md", "watch.py"):
             target = skill_dir / fname
             link = BUS_ROOT / fname
             if link.is_symlink() or link.exists():
@@ -124,6 +124,17 @@ def cmd_register(args):
     except Exception:
         pass
     print(f"registered as {name}")
+    # Print the exact Monitor command the agent must invoke next. The SKILL.md
+    # also instructs this; printing it here means Claude sees the directive
+    # in tool output regardless of which doc was loaded.
+    watch_path = BUS_ROOT / "watch.py"
+    print("")
+    print(f"📡 NEXT STEP — start the inbox watcher (REQUIRED for this session to receive messages).")
+    print(f"   Call the `Monitor` tool with:")
+    print(f"     command:     python3 {watch_path}")
+    print(f"     description: agent-bus: incoming messages for {name}")
+    print(f"     persistent:  true")
+    print(f"   Without this, no incoming messages will surface in this session.")
     # Surface any messages that arrived BEFORE this registration — the watcher
     # would have dropped them with "unregistered, dropping" because my_name()
     # returned None at the time. They sit in the inbox; we replay them now.
