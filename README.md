@@ -1,86 +1,48 @@
-# agent-bus
+# Sroose's Claude Code plugins
 
-Let two or more Claude Code sessions on the same machine talk to each other.
+A small marketplace of Claude Code plugins maintained by [@Sroose](https://github.com/Sroose).
 
-Register each session as a named agent (`OBSIDIAN`, `CODE`, `INFRA`, …) and they can send messages back and forth. Incoming messages wake the receiving Claude automatically and surface in its transcript — no user typing needed. For example useful when agents on different codebases need to communicate (eg contract matching).
-
-![demo](demo/demo.gif)
-<!-- regenerate with: `vhs demo/demo.tape` -->
-
-## Install
+## Install the marketplace
 
 ```
 /plugin marketplace add Sroose/claude-plugins
+```
+
+Then install individual plugins:
+
+```
+/plugin install <plugin-name>@sroose-plugins
+```
+
+## Plugins
+
+### [agent-bus](plugins/agent-bus/) — inter-session messaging
+
+> Let two or more Claude Code sessions on the same machine talk to each other. Register each session as a named agent (`OBSIDIAN`, `CODE`, `INFRA`, …) and they exchange messages, with incoming messages auto-surfacing in the recipient's transcript — no user typing needed.
+
+```
 /plugin install agent-bus@sroose-plugins
 ```
 
-For local development, clone the repo and either:
-- Add it as a local marketplace: `/plugin marketplace add /path/to/claude-plugins` then `/plugin install agent-bus@sroose-plugins`
-- Or load the plugin directly with `--plugin-dir`: `claude --plugin-dir /path/to/claude-plugins/plugins/agent-bus`
+![demo](plugins/agent-bus/demo/demo.gif)
 
-## Use
+→ [plugins/agent-bus/README.md](plugins/agent-bus/README.md) for usage, [DESIGN.md](plugins/agent-bus/DESIGN.md) for internals.
 
-Either use the actual commands:
+### [confluence-sync](plugins/confluence-sync/) — Confluence Cloud ↔ Markdown sync
 
-```
-/agent register OBSIDIAN          # claim a name in this session
-/agent ask CODE "what's X?"       # send to another agent
-/agent list                       # who's currently registered
-/agent unregister                 # release the name
-```
-
-Or - easier - just ask Claude innatural language:
+> Keep local Markdown shadow files in sync with Confluence Cloud pages. Read-only against Confluence: pulls snapshots, manages pre-edit checkpoints, orchestrates the edit→apply→verify loop, and triages deviations after you apply changes manually in the Confluence editor.
 
 ```
-"register as OBSIDIAN"
-"ask CODE our most used linter preference and align with them for this project"
+/plugin install confluence-sync@sroose-plugins
+pip install markdownify    # one-time, required dependency
 ```
 
-Incoming messages are auto-handled by the receiving Claude — you'll see lines like:
+→ [plugins/confluence-sync/README.md](plugins/confluence-sync/README.md) for usage, [SKILL.md](plugins/confluence-sync/skills/confluence-sync/SKILL.md) for the full workflow.
 
-```
-📨 from CODE (id=…):
-src/server/auth/middleware.ts
-📨 end
-```
+## Marketplace-level changes
 
-…and Claude decides whether to reply or hand off to you.
-
-## Why it's interesting
-
-- **Auto-rebind on `/resume`.** Register once in a directory; future sessions there reclaim the name automatically, even in a fresh Docker container.
-- **Pre-filtered notifications.** The watcher only emits messages addressed to *you* — no UI noise from unrelated traffic.
-- **Backlog replay.** Messages that arrive before you register are surfaced on your first `/agent register`.
-- **Native file watcher.** Uses `fswatch` (macOS) or `inotifywait` (Linux) for zero-cost idle waits; falls back to a shell poll if neither is installed.
-- **Send-time visibility.** `/agent send X` warns immediately if no session is currently registered as `X`.
-
-## Commands
-
-| Command | Effect |
-|---|---|
-| `/agent register <NAME>` | Claim a name in this session. Surfaces any pending messages addressed to it. |
-| `/agent unregister` | Release the name and clear its cwd-memo. |
-| `/agent whoami` | Show this session's current registered name. |
-| `/agent list` | List all live registrations on this machine. |
-| `/agent ask <T> "<msg>"` (alias: `send`) | Send to another named session. |
-| `/agent inbox [NAME]` | List pending messages. |
-| `/agent read <id>.json` | Show full message JSON. |
-| `/agent archive <id>.json` | Move a handled message out of the inbox. |
-
-Names: `^[A-Z][A-Z0-9_-]{0,31}$` — auto-uppercased.
-
-## Dependencies
-
-- Python 3.7+
-- One of (for low-latency notifications; falls back to shell-poll otherwise):
-  - macOS: `brew install fswatch`
-  - Linux: `apt install inotify-tools`
-
-## Docs
-
-- [DESIGN.md](DESIGN.md) — how it works, state layout, identity model, Docker/HOST_CWD notes, statusline integration
-- [CHANGELOG.md](CHANGELOG.md) — version history
+See [CHANGELOG.md](CHANGELOG.md) for plugin additions, removals, and renames at the marketplace level. Each plugin tracks its own version history in `plugins/<name>/CHANGELOG.md`.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). Same license applies to all plugins in this marketplace.

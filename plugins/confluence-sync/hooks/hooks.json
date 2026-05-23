@@ -1,0 +1,15 @@
+{
+  "description": "confluence-sync hooks: SessionStart maintains a stable symlink at ~/.claude/confluence-sync/confluence_sync.py so SKILL.md and user invocations can use one fixed path regardless of where the plugin lives on disk.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "S=\"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session_start.py\"; [ -f \"$S\" ] || S=$(find \"$HOME/.claude\" -path '*confluence-sync*/hooks/scripts/session_start.py' 2>/dev/null | head -1); [ -f \"$S\" ] && exec python3 \"$S\""
+          }
+        ]
+      }
+    ]
+  }
+}

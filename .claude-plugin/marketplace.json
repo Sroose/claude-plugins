@@ -9,6 +9,11 @@
       "name": "agent-bus",
       "description": "Message bus between Claude Code sessions on the same machine. Register a name and exchange messages with other named sessions, with auto-rebind on /resume and pre-filtered notifications.",
       "source": "./plugins/agent-bus"
+    },
+    {
+      "name": "confluence-sync",
+      "description": "Workflow for keeping Markdown shadow files in sync with Confluence Cloud pages. Read-only against Confluence; manages local snapshots and pre-edit checkpoints; triages deviations on close. User applies changes manually in the Confluence editor.",
+      "source": "./plugins/confluence-sync"
     }
   ]
 }
