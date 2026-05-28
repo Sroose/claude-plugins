@@ -29,10 +29,10 @@ host_cwd = os.environ.get("HOST_CWD", "") or inp.get("cwd", "")
 
 guidance = (
     "[agent-bus plugin active]\n\n"
-    "Resolve the bus helper at call time (don't cache the path):\n"
-    "  BUS=$(find ~/.claude/plugins/cache -path '*agent-bus*/skills/agent/bus.py' "
-    "2>/dev/null | sort -V | tail -1)\n"
-    "then run `python3 \"$BUS\" <subcommand>`. Re-resolve in each Bash call.\n\n"
+    "Invoke the bus via the `agent-bus` launcher (on PATH while the plugin is "
+    "enabled): `agent-bus register <NAME>`, `agent-bus send <TO> \"...\"`, "
+    "`agent-bus whoami`, etc. Run each bare — no `$(...)`, pipes, or `&&` — so it "
+    "stays allowlistable and never triggers a permission prompt.\n\n"
     "This session may receive Monitor notifications from the inbox watcher. It "
     "pre-filters by your registered name — you only get events for messages addressed "
     "to you. Each notification's event payload looks like:\n\n"
@@ -40,7 +40,7 @@ guidance = (
     "    <body, may be multi-line>\n"
     "    📨 end\n\n"
     "Handle each one: print the body to the user, optionally reply via "
-    "`python3 \"$BUS\" send …`, then `python3 \"$BUS\" archive <id>.json`. "
+    "`agent-bus send …`, then `agent-bus archive <id>.json`. "
     "See the `/agent` skill for the full operation set."
 )
 
@@ -102,10 +102,10 @@ if host_cwd:
                 f"This host directory's prior session was registered as `{remembered}`; "
                 f"this session has been {rebind_status}. To actually receive messages you "
                 f"must still start the inbox watcher: call the `Monitor` tool with "
-                f"`command: python3 \"$(find ~/.claude/plugins/cache -path '*agent-bus*/skills/agent/watch.py' 2>/dev/null | sort -V | tail -1)\"`, "
-                f"`description: agent-bus: incoming messages for {remembered}`, `persistent: true`. "
-                f"(The hook writes the registry but cannot call tools.) If the user wanted a "
-                f"different name, run `/agent unregister` then register the desired name instead."
+                f"`command: agent-bus watch`, `description: agent-bus: incoming messages for "
+                f"{remembered}`, `persistent: true`. (The hook writes the registry but cannot "
+                f"call tools.) If the user wanted a different name, run `/agent unregister` then "
+                f"register the desired name instead."
             )
 
 out = {

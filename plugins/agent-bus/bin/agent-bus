@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# agent-bus launcher.
+#
+# Lives in the plugin's bin/ dir, which Claude Code adds to the Bash tool's PATH
+# while the plugin is enabled. This gives callers — and the permission allowlist
+# — a clean, statically-analyzable command:
+#
+#     agent-bus register OBSIDIAN
+#     agent-bus send CODE "..."
+#     agent-bus watch
+#
+# instead of an un-analyzable `BUS=$(find ...); python3 "$BUS" ...` one-liner,
+# which can never match an allowlist prefix and therefore always prompts. A
+# permission prompt mid-turn on a guarded agent can corrupt its transcript, so
+# zero-prompt invocation matters. Allowlist this as: Bash(agent-bus:*)
+#
+# Dispatch: `watch` → watch.py (the persistent inbox watcher); everything else
+# → bus.py (register/unregister/whoami/list/send/inbox/read/archive).
+
+set -uo pipefail
+
+# Prefer scripts sitting next to this launcher's own version (no find, no
+# version ambiguity — PATH gave us the enabled version's bin/).
+HERE=$(cd "$(dirname "$0")" 2>/dev/null && pwd)
+SKILL="$HERE/../skills/agent"
+
+# Fallback: if the sibling layout isn't found (e.g. launcher reached via an
+# unusual symlink), locate the newest installed copy in the plugin cache.
+if [ ! -f "$SKILL/bus.py" ]; then
+  buspy=$(find "$HOME/.claude/plugins/cache" -path '*agent-bus*/skills/agent/bus.py' 2>/dev/null | sort -V | tail -1)
+  [ -n "$buspy" ] && SKILL=$(dirname "$buspy")
+fi
+
+if [ ! -f "$SKILL/bus.py" ]; then
+  echo "agent-bus: could not locate the plugin's bus.py" >&2
+  exit 1
+fi
+
+case "${1:-}" in
+  watch)
+    shift
+    exec python3 "$SKILL/watch.py" "$@"
+    ;;
+  *)
+    exec python3 "$SKILL/bus.py" "$@"
+    ;;
+esac

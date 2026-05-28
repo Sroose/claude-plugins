@@ -27,7 +27,8 @@ How the plugin works under the hood, and the design choices behind it. Read this
 ```
 
 The helper scripts (`bus.py`, `watch.py`) are **not** copied or symlinked here —
-they're resolved at call time from the plugin cache (see Helper resolution below).
+they're invoked via the `agent-bus` launcher (the plugin's `bin/agent-bus`, placed
+on the Bash tool's PATH while the plugin is enabled). See Helper resolution below.
 
 ## Identity
 
@@ -47,19 +48,26 @@ On `SessionEnd`, the registry entry is removed, but the memo is **kept**. When a
 
 ## Helper resolution
 
-The skill, the hooks, and the watcher all need to invoke `bus.py` / `watch.py`, which live in the versioned plugin cache (`~/.claude/plugins/cache/<marketplace>/agent-bus/<version>/skills/agent/`). Rather than cache a resolved path, every caller re-resolves at call time:
+The skill, the hooks, and the watcher all need to invoke `bus.py` / `watch.py`, which live in the versioned plugin cache (`~/.claude/plugins/cache/<marketplace>/agent-bus/<version>/skills/agent/`).
+
+**Primary path — the `agent-bus` launcher (0.1.4+).** The plugin ships `bin/agent-bus`, and Claude Code adds a plugin's `bin/` to the Bash tool's PATH while the plugin is enabled. So callers just run `agent-bus <subcommand>`. The launcher resolves `bus.py`/`watch.py` relative to its own location (it's in the same version dir), and dispatches. Two payoffs:
+
+- **Allowlistable.** `agent-bus register X` is a clean prefix → matches `Bash(agent-bus:*)` → no permission prompt. This matters beyond ergonomics: a prompt mid-turn can corrupt a guarded/limited-permission agent's transcript.
+- **No path baked anywhere.** The launcher finds its siblings at runtime in the caller's namespace.
+
+**Fallback — call-time `find`.** If the launcher isn't on PATH (plugin disabled, or a CC build without `bin/` support), resolve directly:
 
 ```bash
 find ~/.claude/plugins/cache -path '*agent-bus*/skills/agent/bus.py' 2>/dev/null | sort -V | tail -1
 ```
 
 - Scoped to `~/.claude/plugins/cache` — a blanket `~/.claude` search also matches the marketplace **repo clone** under `plugins/marketplaces/…` (no version dir), which sorts last lexically and would be picked wrongly by `tail -1`.
-- `sort -V | tail -1` picks the highest installed version.
-- Runs in the **caller's** namespace, so `~` expands correctly whether on the host or inside a container sharing the `~/.claude` mount.
+- `sort -V | tail -1` picks the highest installed version; runs in the caller's namespace.
+- This form contains `$(…)` so it is **not** allowlistable — it will prompt. Use only as a degraded fallback.
 
-**Why not a symlink?** Earlier versions (≤0.1.2) symlinked `~/.claude/bus/bus.py` → the versioned script. That broke repeatedly: a single shared link can't serve a container ($HOME=/home/claude) and the host ($HOME=/Users/…) at once; the symlink-repair logic was only reachable *through* the link (circular when it dangled); and version-pinned targets went stale. Call-time resolution removes the whole class of bug — nothing is cached, so nothing goes stale. (Removed in 0.1.3.)
+**Why not a symlink?** Versions ≤0.1.2 symlinked `~/.claude/bus/bus.py` → the versioned script. That broke repeatedly: a single shared link can't serve a container ($HOME=/home/claude) and the host ($HOME=/Users/…) at once; the repair logic was only reachable *through* the link (circular when it dangled); version-pinned targets went stale. Dropped in 0.1.3 for call-time resolution; superseded in 0.1.4 by the launcher.
 
-The one cost: a `find` per invocation (milliseconds, scoped). `--plugin-dir` dev installs live outside the cache and won't be found — for dev, invoke the script by its explicit path.
+`--plugin-dir` dev installs live outside the cache — for dev, invoke the script by its explicit path.
 
 ## File watcher
 

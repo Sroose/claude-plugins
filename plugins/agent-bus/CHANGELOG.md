@@ -1,5 +1,11 @@
 # Changelog — agent-bus
 
+## 0.1.4 — 2026-05-28
+
+- **Added a `bin/agent-bus` launcher** (on the Bash tool's PATH while the plugin is enabled). All operations are now invoked as a clean, statically-analyzable command — `agent-bus register OBSIDIAN`, `agent-bus send CODE "..."`, `agent-bus watch` — instead of the 0.1.3 `BUS=$(find …); python3 "$BUS" …` resolver. That resolver could **never** be matched by the permission allowlist (leading assignment + `$(…)` → "cannot be statically analyzed"), so guarded/limited-permission agents got a prompt on every call — and a prompt mid-turn can corrupt a guarded agent's transcript. With the launcher, allowlist `Bash(agent-bus:*)` and calls are prompt-free.
+- SKILL.md, PROTOCOL.md, the SessionStart guidance, and the register-printed Monitor command all now emit bare `agent-bus …` commands. The `$(find …)` form remains documented only as a fallback for when the launcher isn't on PATH.
+- The launcher resolves its sibling `bus.py`/`watch.py` by its own location (no find in the common case), falling back to a cache-scoped find.
+
 ## 0.1.3 — 2026-05-28
 
 - **Dropped the `~/.claude/bus/` script symlinks entirely; helper is now resolved at call time.** The symlink approach (0.1.1 relative-target fix included) had a fatal flaw: a single shared `~/.claude/bus/bus.py` link can't point at both a container's and the host's plugin copy at once, and the link-repair logic lived *inside* `bus.py` — unreachable when you invoke `bus.py` *through* a dangling link (circular). SKILL.md, PROTOCOL.md, the SessionStart hook, and the register-printed Monitor command now resolve the script via `find ~/.claude/plugins/cache -path '*agent-bus*/skills/agent/bus.py' | sort -V | tail -1` — newest installed version, caller's namespace, nothing cached, nothing to dangle.

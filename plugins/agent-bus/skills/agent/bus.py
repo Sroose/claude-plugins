@@ -112,16 +112,18 @@ def cmd_register(args):
     print(f"registered as {name}")
     # Print the exact Monitor command the agent must invoke next. The SKILL.md
     # also instructs this; printing it here means Claude sees the directive
-    # in tool output regardless of which doc was loaded. We point at THIS
-    # running script's sibling watch.py (absolute, current version, current
-    # namespace) — guaranteed to exist since it's right next to us.
+    # in tool output regardless of which doc was loaded. Use the `agent-bus`
+    # launcher (clean, allowlistable, no $(...) — a prompt mid-turn can corrupt
+    # a guarded agent). Fallback to the sibling watch.py path if the launcher
+    # isn't on PATH.
     watch_path = Path(__file__).resolve().parent / "watch.py"
     print("")
     print(f"📡 NEXT STEP — start the inbox watcher (REQUIRED for this session to receive messages).")
     print(f"   Call the `Monitor` tool with:")
-    print(f"     command:     python3 {watch_path}")
+    print(f"     command:     agent-bus watch")
     print(f"     description: agent-bus: incoming messages for {name}")
     print(f"     persistent:  true")
+    print(f"   (If `agent-bus` is not on PATH, use: python3 {watch_path})")
     print(f"   Without this, no incoming messages will surface in this session.")
     # Surface any messages that arrived BEFORE this registration — the watcher
     # would have dropped them with "unregistered, dropping" because my_name()

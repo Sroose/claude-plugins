@@ -1,6 +1,6 @@
 {
   "name": "agent-bus",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Message bus between Claude Code sessions. Each session can register a name (OBSIDIAN, CODE, …) and exchange messages with other named sessions through ~/.claude/bus/.",
   "author": {
     "name": "Sroose"
