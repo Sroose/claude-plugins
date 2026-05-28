@@ -1,5 +1,9 @@
 # Changelog — agent-bus
 
+## 0.1.2 — 2026-05-28
+
+- **Symlinks at `~/.claude/bus/` are now relative.** Previously they stored an absolute target (e.g. `/home/claude/.claude/plugins/.../bus.py`), which broke when `~/.claude` is a shared bind-mount between a Docker container and the host — the absolute path is only valid in one namespace, so a session in the other namespace (or a native host session reusing a container-written link) failed with "no such file." Relative targets resolve correctly from both namespaces since link and target share the `~/.claude` root. Affects the SessionStart hook and `bus.py register`.
+
 ## 0.1.1 — 2026-05-20
 
 - **Watcher startup is now deterministic.** The declarative `monitors/` entry has been removed; `bus.py register` now prints the exact `Monitor` tool invocation in its stdout, and `SKILL.md` instructs the agent to call it after every successful register. Previously the declarative `when: "on-skill-invoke"` trigger fired inconsistently — some sessions never got a live watcher and silently dropped messages.

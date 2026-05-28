@@ -1,6 +1,6 @@
 {
   "name": "confluence-sync",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Workflow for keeping Markdown shadow files in sync with Confluence Cloud pages. Read-only against Confluence: downloads pages as Markdown, manages local snapshots and pre-edit checkpoints, orchestrates the edit/apply/verify loop, and triages deviations on close. The user always applies changes manually in the Confluence editor.",
   "author": {
     "name": "Sroose"

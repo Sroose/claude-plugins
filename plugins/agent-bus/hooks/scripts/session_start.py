@@ -18,6 +18,12 @@ SKILL_DIR = PLUGIN_ROOT / "skills" / "agent"
 
 # (1) Maintain stable symlinks for bus.py, PROTOCOL.md, and watch.py so
 # SKILL.md, the user, and the Monitor-tool command have fixed invocation paths.
+#
+# Use RELATIVE symlink targets. ~/.claude is often a shared bind-mount between a
+# Docker container ($HOME=/home/claude) and the host ($HOME=/Users/<you>): same
+# files, different absolute paths. An absolute symlink target is only valid in
+# one namespace; a relative one (e.g. ../plugins/cache/.../bus.py) resolves
+# correctly in both, since the link and target share the ~/.claude root.
 try:
     bus_dir = Path.home() / ".claude" / "bus"
     bus_dir.mkdir(parents=True, exist_ok=True)
@@ -26,7 +32,7 @@ try:
         link = bus_dir / name
         if link.is_symlink() or link.exists():
             link.unlink()
-        link.symlink_to(target)
+        link.symlink_to(os.path.relpath(target, link.parent))
 except Exception:
     pass  # non-fatal; SKILL.md has a find-based fallback
 

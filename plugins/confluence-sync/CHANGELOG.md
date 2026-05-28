@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1 — 2026-05-28
+
+- **Symlink at `~/.claude/confluence-sync/confluence_sync.py` is now relative.** Same fix as agent-bus 0.1.2: an absolute symlink target breaks when `~/.claude` is a shared bind-mount between a Docker container and the host. Relative targets resolve from both namespaces.
+
 ## 0.1.0 — 2026-05-23
 
 Initial release.
