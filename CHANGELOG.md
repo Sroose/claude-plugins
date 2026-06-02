@@ -2,6 +2,10 @@
 
 This file tracks marketplace-level changes: plugins added, removed, renamed, or marketplace-wide reshuffles. Per-plugin version history lives in `plugins/<name>/CHANGELOG.md`.
 
+## 2026-06-02
+
+- Added [better-statusline](plugins/better-statusline/) (initial release at 0.1.0): a status line showing model, 5-hour and weekly rate-limit usage, context-window %, and cwd. Ships `/better-statusline:apply` to wire the `statusLine` entry into `~/.claude/settings.json` (plugins can't set that key automatically). See plugin CHANGELOG.
+
 ## 2026-05-28
 
 - agent-bus → 0.1.4: added a `bin/agent-bus` PATH launcher so all bus calls are clean `agent-bus …` commands — statically analyzable, allowlistable as `Bash(agent-bus:*)`, prompt-free for guarded agents (the 0.1.3 `$(find …)` resolver could never match an allow rule). See plugin CHANGELOG.

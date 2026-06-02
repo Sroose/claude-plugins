@@ -14,6 +14,11 @@
       "name": "confluence-sync",
       "description": "Workflow for keeping Markdown shadow files in sync with Confluence Cloud pages. Read-only against Confluence; manages local snapshots and pre-edit checkpoints; triages deviations on close. User applies changes manually in the Confluence editor.",
       "source": "./plugins/confluence-sync"
+    },
+    {
+      "name": "better-statusline",
+      "description": "Status line showing model, 5-hour and weekly rate-limit usage with resets, context-window %, and working directory. Ships /better-statusline:apply to wire it into ~/.claude/settings.json.",
+      "source": "./plugins/better-statusline"
     }
   ]
 }

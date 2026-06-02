@@ -16,6 +16,20 @@ Then install individual plugins:
 
 ## Plugins
 
+### [better-statusline](plugins/better-statusline/) — richer status line
+
+> A Claude Code status line showing the model, 5-hour and weekly rate-limit usage (with resets), context-window %, and working directory. `/better-statusline:apply` wires it into your `~/.claude/settings.json` for you.
+
+```
+/plugin install better-statusline@sroose-plugins
+/reload-plugins              # activate the plugin in the current session
+/better-statusline:apply     # wire the status line into ~/.claude/settings.json
+```
+
+![better-statusline](plugins/better-statusline/statusline.png)
+
+→ [plugins/better-statusline/README.md](plugins/better-statusline/README.md) for usage.
+
 ### [agent-bus](plugins/agent-bus/) — inter-session messaging
 
 > Let two or more Claude Code sessions on the same machine talk to each other. Register each session as a named agent (`OBSIDIAN`, `CODE`, `INFRA`, …) and they exchange messages, with incoming messages auto-surfacing in the recipient's transcript — no user typing needed.

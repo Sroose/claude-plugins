@@ -1,0 +1,8 @@
+{
+  "name": "better-statusline",
+  "version": "0.1.0",
+  "description": "Status line showing model, 5-hour and weekly rate-limit usage, context-window %, and working directory. Ships /better-statusline:apply to wire it into ~/.claude/settings.json.",
+  "author": {
+    "name": "Sroose"
+  }
+}
