@@ -1,0 +1,13 @@
+{
+  "name": "jira-fetch",
+  "version": "0.1.0",
+  "description": "Read-only fetch of Jira Cloud issues to Markdown. Downloads an issue (key, metadata, description, comments) as a Markdown file for reference while you work. Uses your browser session cookie; never writes to Jira.",
+  "author": {
+    "name": "Sroose"
+  },
+  "homepage": "https://github.com/Sroose/claude-plugins",
+  "repository": "https://github.com/Sroose/claude-plugins",
+  "license": "MIT",
+  "keywords": ["jira", "atlassian", "markdown", "issues", "tickets"],
+  "category": "productivity"
+}

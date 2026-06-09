@@ -53,6 +53,17 @@ pip install markdownify    # one-time, required dependency
 
 → [plugins/confluence-sync/README.md](plugins/confluence-sync/README.md) for usage, [SKILL.md](plugins/confluence-sync/skills/confluence-sync/SKILL.md) for the full workflow.
 
+### [jira-fetch](plugins/jira-fetch/) — Jira Cloud issues → Markdown
+
+> Pull a Jira Cloud issue (key, metadata, description, comments) into a local Markdown file so Claude can read it while working in your repo. The sibling of confluence-sync: same session-cookie auth and HTML→Markdown pipeline, but for issues instead of wiki pages, and one-way — **read-only against Jira**, no apply/verify loop.
+
+```
+/plugin install jira-fetch@sroose-plugins
+pip install markdownify    # one-time, required dependency
+```
+
+→ [plugins/jira-fetch/README.md](plugins/jira-fetch/README.md) for usage, [SKILL.md](plugins/jira-fetch/skills/jira-fetch/SKILL.md) for the full workflow.
+
 ## Marketplace-level changes
 
 See [CHANGELOG.md](CHANGELOG.md) for plugin additions, removals, and renames at the marketplace level. Each plugin tracks its own version history in `plugins/<name>/CHANGELOG.md`.

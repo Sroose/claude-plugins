@@ -2,6 +2,10 @@
 
 This file tracks marketplace-level changes: plugins added, removed, renamed, or marketplace-wide reshuffles. Per-plugin version history lives in `plugins/<name>/CHANGELOG.md`.
 
+## 2026-06-09
+
+- Added [jira-fetch](plugins/jira-fetch/) (initial release at 0.1.0): read-only fetch of Jira Cloud issues to Markdown (key, metadata, description, comments). Sibling of confluence-sync — same session-cookie auth model (stored separately at `~/.claude/secrets/jira-session`, since Atlassian issues distinct `tenant.session.token` values per product surface) and the same `markdownify` HTML→Markdown pipeline, but one-way (no apply/verify loop). See plugin CHANGELOG.
+
 ## 2026-06-02
 
 - Added [better-statusline](plugins/better-statusline/) (initial release at 0.1.0): a status line showing model, 5-hour and weekly rate-limit usage, context-window %, and cwd. Ships `/better-statusline:apply` to wire the `statusLine` entry into `~/.claude/settings.json` (plugins can't set that key automatically). See plugin CHANGELOG.

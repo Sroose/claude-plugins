@@ -19,6 +19,11 @@
       "name": "better-statusline",
       "description": "Status line showing model, 5-hour and weekly rate-limit usage with resets, context-window %, and working directory. Ships /better-statusline:apply to wire it into ~/.claude/settings.json.",
       "source": "./plugins/better-statusline"
+    },
+    {
+      "name": "jira-fetch",
+      "description": "Read-only fetch of Jira Cloud issues to Markdown. Downloads an issue (key, metadata, description, comments) as a Markdown file for reference while you work. Sibling of confluence-sync: same session-cookie auth and HTML->Markdown pipeline, one-way, never writes to Jira.",
+      "source": "./plugins/jira-fetch"
     }
   ]
 }
