@@ -1,0 +1,13 @@
+{
+  "name": "whisper-transcribe",
+  "version": "0.1.0",
+  "description": "Transcribe meeting/audio recordings via a whisper.cpp server (local, LAN, or tailnet) and write a concise summary, optionally sharpened with caller-supplied context (files or inline --context-text). Asks for the server URL on first use — no hardcoded host. Ships /transcribe <recording> [--prompt \"vocab\"] [--lang xx] [--context-text \"...\"] [context.md ...].",
+  "author": {
+    "name": "Sroose"
+  },
+  "homepage": "https://github.com/Sroose/claude-plugins",
+  "repository": "https://github.com/Sroose/claude-plugins",
+  "license": "MIT",
+  "keywords": ["whisper", "transcription", "speech-to-text", "meetings", "summary"],
+  "category": "productivity"
+}

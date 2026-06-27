@@ -2,6 +2,10 @@
 
 This file tracks marketplace-level changes: plugins added, removed, renamed, or marketplace-wide reshuffles. Per-plugin version history lives in `plugins/<name>/CHANGELOG.md`.
 
+## 2026-06-27
+
+- Added [whisper-transcribe](plugins/whisper-transcribe/) (initial release at 0.1.0): transcribe audio/meeting recordings via a whisper.cpp `whisper-server` (local, LAN, or tailnet) and write a concise summary (action points + decisions) next to the recording, optionally sharpened with caller-supplied context files or an inline `--context-text "..."` string. Server URL is asked once on first use — nothing hardcoded. Ships a `server-setup/` folder with run instructions and a macOS LaunchAgent template. See plugin CHANGELOG.
+
 ## 2026-06-09
 
 - Added [jira-fetch](plugins/jira-fetch/) (initial release at 0.1.0): read-only fetch of Jira Cloud issues to Markdown (key, metadata, description, comments). Sibling of confluence-sync — same session-cookie auth model (stored separately at `~/.claude/secrets/jira-session`, since Atlassian issues distinct `tenant.session.token` values per product surface) and the same `markdownify` HTML→Markdown pipeline, but one-way (no apply/verify loop). See plugin CHANGELOG.

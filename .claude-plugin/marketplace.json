@@ -24,6 +24,11 @@
       "name": "jira-fetch",
       "description": "Read-only fetch of Jira Cloud issues to Markdown. Downloads an issue (key, metadata, description, comments) as a Markdown file for reference while you work. Sibling of confluence-sync: same session-cookie auth and HTML->Markdown pipeline, one-way, never writes to Jira.",
       "source": "./plugins/jira-fetch"
+    },
+    {
+      "name": "whisper-transcribe",
+      "description": "Transcribe meeting/audio recordings via a whisper.cpp server (local, LAN, or tailnet) and write a concise, context-aware summary. Context can be files or an inline --context-text \"...\" string. Asks for the server URL on first use - no hardcoded host. Ships /transcribe <recording> [--prompt \"vocab\"] [--lang xx] [--context-text \"...\"] [context.md ...].",
+      "source": "./plugins/whisper-transcribe"
     }
   ]
 }

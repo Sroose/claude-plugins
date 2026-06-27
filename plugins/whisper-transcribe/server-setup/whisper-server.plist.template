@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- macOS LaunchAgent template for whisper.cpp's whisper-server.
+     OPTIONAL: only one way to keep the server running. You can equally run whisper-server in a
+     terminal, tmux, Docker, a Linux systemd unit, etc. The plugin does not care how the server
+     is hosted — it only needs the URL.
+
+     To use on macOS, replace the __PLACEHOLDERS__ below, then:
+       cp whisper-server.plist ~/Library/LaunchAgents/com.example.whisper-server.plist
+       launchctl load -w ~/Library/LaunchAgents/com.example.whisper-server.plist
+     Logs go to /tmp/whisper-server.out / .err. A LaunchAgent runs in your GUI login session, so
+     GPU (Metal) works — unlike a headless SSH-invoked process.
+
+     Placeholders to replace (all literal strings, no quotes around them in the XML):
+       __WHISPER_DIR__  absolute path to your whisper.cpp checkout
+                        e.g. /Users/you/code/tools/whisper.cpp
+       __MODEL__        the model FILENAME inside __WHISPER_DIR__/models/
+                        (basename WITH the .bin extension — not a friendly name, not a full path)
+                        e.g. ggml-large-v3.bin   or   ggml-large-v3-q5_0.bin
+                        The full -m argument becomes: __WHISPER_DIR__/models/__MODEL__
+       __HOST__         127.0.0.1  (same-machine only)  or  0.0.0.0  (LAN/tailnet)
+       __PORT__         e.g. 8777
+
+     SECURITY: whisper-server has NO authentication. Bind it to localhost (127.0.0.1) if the
+     client runs on the same machine, or to a trusted LAN/tailnet interface otherwise. Never
+     port-forward it to the internet. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.example.whisper-server</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__WHISPER_DIR__/build/bin/whisper-server</string>
+        <string>-m</string>
+        <string>__WHISPER_DIR__/models/__MODEL__</string>
+        <string>-mc</string>
+        <string>64</string>
+        <string>-nt</string>
+        <string>--carry-initial-prompt</string>
+        <string>--host</string>
+        <string>__HOST__</string>
+        <string>--port</string>
+        <string>__PORT__</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>__WHISPER_DIR__</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/whisper-server.out</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/whisper-server.err</string>
+</dict>
+</plist>

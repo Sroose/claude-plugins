@@ -64,6 +64,16 @@ pip install markdownify    # one-time, required dependency
 
 → [plugins/jira-fetch/README.md](plugins/jira-fetch/README.md) for usage, [SKILL.md](plugins/jira-fetch/skills/jira-fetch/SKILL.md) for the full workflow.
 
+### [whisper-transcribe](plugins/whisper-transcribe/) — local/LAN whisper.cpp transcription + context-aware summary
+
+> Transcribe audio/meeting recordings via a [whisper.cpp](https://github.com/ggerganov/whisper.cpp) `whisper-server` (local, LAN, or Tailscale tailnet) and write a concise summary (action points + decisions) next to the recording. Context can be supplied as files or an inline `--context-text "..."` string, used to cross-link ids and sharpen names without rewriting the summary. The server URL is asked once on first use — nothing hardcoded; audio and transcripts stay on your own machines.
+
+```
+/plugin install whisper-transcribe@sroose-plugins
+```
+
+→ [plugins/whisper-transcribe/README.md](plugins/whisper-transcribe/README.md) for usage, [server-setup/README.md](plugins/whisper-transcribe/server-setup/README.md) for running the whisper-server.
+
 ## Marketplace-level changes
 
 See [CHANGELOG.md](CHANGELOG.md) for plugin additions, removals, and renames at the marketplace level. Each plugin tracks its own version history in `plugins/<name>/CHANGELOG.md`.
