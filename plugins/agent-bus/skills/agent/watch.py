@@ -14,7 +14,7 @@ Picks the best available file-watch backend at startup:
 Pre-filtering at this layer means Claude only sees notifications meant for it,
 which dramatically cuts UI noise and per-event tool-call cost on the receiver.
 """
-import json, os, sys, time, shutil, subprocess, signal, socket, hashlib
+import json, os, re, sys, time, atexit, shutil, secrets, threading, subprocess, signal, socket, hashlib
 from pathlib import Path
 from datetime import datetime
 
@@ -26,6 +26,11 @@ INBOX.mkdir(parents=True, exist_ok=True)
 REGISTRY.mkdir(parents=True, exist_ok=True)
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 LOG_FILE = LOG_DIR / "watcher.log"
+# One watcher per host/container. Orphans (their session died without SIGTERM-ing
+# them) otherwise accumulate and every one of them EMITs the same message, so the
+# receiving session sees N copies of each notification.
+PID_FILE = LOG_DIR / ("watcher-%s.pid" % re.sub(r"[^A-Za-z0-9_.-]", "_", socket.gethostname() or "unknown"))
+HEARTBEAT_EVERY = 60  # seconds between lease refreshes (bus.py's LEASE_TTL is 300)
 
 
 def log(msg):
@@ -34,6 +39,26 @@ def log(msg):
             fh.write(f"{datetime.utcnow().isoformat()}Z [{os.getpid()}] {msg}\n")
     except Exception:
         pass
+
+
+def resolve_host_cwd():
+    """The host-side directory this session belongs to: $HOST_CWD (Docker
+    wrappers) → the session-cwd memo the SessionStart hook wrote (captured
+    before the session could `cd`) → the process cwd. Plain os.getcwd() is wrong
+    for a session that has `cd`-ed: it would resolve a different cwd-memo than
+    the one the session registered under. Mirrors bus.py resolve_host_cwd()."""
+    hc = os.environ.get("HOST_CWD", "")
+    if hc:
+        return hc
+    sid = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
+    if sid:
+        try:
+            memo = json.loads((BUS_ROOT / "session-cwd" / f"{sid}.json").read_text())
+            if memo.get("host_cwd"):
+                return memo["host_cwd"]
+        except Exception:
+            pass
+    return os.getcwd()
 
 
 def auto_rebind_from_memo():
@@ -47,8 +72,7 @@ def auto_rebind_from_memo():
       - the name is currently held by a DIFFERENT host (conflict)
     """
     host = socket.gethostname()
-    # $HOST_CWD set by Docker wrappers, else the actual cwd of this process.
-    host_cwd = os.environ.get("HOST_CWD", "") or os.getcwd()
+    host_cwd = resolve_host_cwd()
     if not host or not host_cwd:
         return
     memo_hash = hashlib.sha256(host_cwd.encode()).hexdigest()[:16]
@@ -78,6 +102,9 @@ def auto_rebind_from_memo():
         "name": name,
         "container": host,
         "session_id": os.environ.get("CLAUDE_CODE_SESSION_ID", ""),
+        # Same lease fields bus.py register writes — this IS a registration.
+        "instance": secrets.token_hex(8),
+        "heartbeat_at": int(time.time()),
         "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "cwd": os.environ.get("PWD", ""),
         "host_cwd": host_cwd,
@@ -87,24 +114,172 @@ def auto_rebind_from_memo():
     log(f"AUTO-REBIND: registered as {name} from cwd-memo {host_cwd}")
 
 
-def my_name():
-    """Return the name this session is registered as, or None.
+def registry_entries():
+    """Every parseable registry entry, as a list of dicts."""
+    out = []
+    for f in sorted(REGISTRY.glob("*.json")):
+        try:
+            with open(f) as fh:
+                out.append(json.load(fh))
+        except Exception:
+            continue
+    return out
 
-    Keyed on hostname (stable across /resume within the same host/container,
-    unique per fresh Docker container), not session_id (which changes on
-    /resume and leaves pre-resume watcher subprocesses with stale env)."""
+
+def my_entry():
+    """This session's registration, or None when it can't be resolved
+    unambiguously. Same order as bus.py my_entry():
+
+    1. session_id match — exact, and the only thing that separates two native
+       sessions on one Mac (they share a hostname);
+    2. else a *unique* hostname match — kept because a watcher spawned before a
+       /resume carries a stale session_id in its env;
+    3. else None. Two same-hostname candidates used to make this watcher answer
+       (and emit) as whichever entry the glob happened to return first."""
+    sid = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
+    entries = registry_entries()
+    if sid:
+        for d in entries:
+            if d.get("session_id") and d.get("session_id") == sid:
+                return d
     host = socket.gethostname()
     if not host:
         return None
-    for f in REGISTRY.glob("*.json"):
+    mine = [d for d in entries if d.get("container") == host]
+    return mine[0] if len(mine) == 1 else None
+
+
+def my_name():
+    """Return the name this session is registered as, or None."""
+    d = my_entry()
+    return d.get("name") if d else None
+
+
+# ---------------------------------------------------------------- lease -----
+# The registration this watcher keeps alive. `instance` is regenerated on every
+# register, so a watcher that has been superseded can tell — and must then stop
+# refreshing a heartbeat that would otherwise vouch for a session that is gone.
+_lease = {"name": None, "instance": None, "bound": False}
+
+
+def bind_lease():
+    """Bind to the registration this watcher serves. Returns True on success."""
+    d = my_entry()
+    if not d or not d.get("name"):
+        return False
+    _lease.update(name=d["name"], instance=d.get("instance"), bound=True)
+    log(f"LEASE bound: name={d['name']} instance={d.get('instance') or '(legacy entry)'}")
+    return True
+
+
+def heartbeat_once():
+    """Refresh `heartbeat_at` on the bound entry.
+
+    Re-reads first: if the entry is gone, or has been re-registered (different
+    `instance`), this watcher no longer owns that lease — stop touching it and
+    keep watching, since a later registration in this session may hand us a new
+    one (picked up by the bind attempt below)."""
+    if not _lease["bound"]:
+        bind_lease()
+        return
+    path = REGISTRY / f"{_lease['name']}.json"
+    try:
+        with open(path) as fh:
+            d = json.load(fh)
+    except Exception:
+        log(f"LEASE released: {path.name} is gone or unreadable — heartbeat stopped")
+        _lease.update(bound=False)
+        return
+    if d.get("instance") != _lease["instance"]:
+        log(f"LEASE released: '{_lease['name']}' was re-registered "
+            f"(instance {_lease['instance']} → {d.get('instance')}) — heartbeat stopped")
+        _lease.update(bound=False)
+        return
+    d["heartbeat_at"] = int(time.time())
+    # tmp + rename, and NOT named *.json, so a concurrent registry scan can
+    # never see a half-written entry or the temp file itself.
+    tmp = REGISTRY / f".hb-{os.getpid()}.tmp"
+    try:
+        tmp.write_text(json.dumps(d, indent=2))
+        tmp.replace(path)
+    except Exception as e:
+        log(f"LEASE refresh failed: {type(e).__name__}: {e}")
+
+
+def heartbeat_loop():
+    """Daemon thread: keeps the lease fresh for every backend, including the two
+    that block forever inside a read() and never return to an event loop."""
+    while True:
+        time.sleep(HEARTBEAT_EVERY)
         try:
-            with open(f) as fh:
-                d = json.load(fh)
-            if d.get("container") == host:
-                return d.get("name")
-        except Exception:
-            continue
-    return None
+            heartbeat_once()
+        except Exception as e:
+            log(f"LEASE thread error: {type(e).__name__}: {e}")
+
+
+# -------------------------------------------------------------- pidfile -----
+
+
+def pid_alive(pid):
+    try:
+        os.kill(pid, 0)
+        return True
+    except Exception:
+        return False
+
+
+def pid_cmdline(pid):
+    """The command line of a running pid, or "". Via `ps` because macOS has no
+    /proc — and the host is where the orphans actually pile up."""
+    try:
+        out = subprocess.run(["ps", "-p", str(pid), "-o", "command="],
+                             capture_output=True, text=True, timeout=5)
+        return (out.stdout or "").strip()
+    except Exception:
+        return ""
+
+
+def claim_pidfile():
+    """Become the single watcher for this host/container: SIGTERM whatever the
+    pidfile points at (if it is still one of ours), then record our own pid.
+
+    The command-line check matters: pids are recycled, and killing an unrelated
+    process because it inherited a dead watcher's pid would be far worse than
+    tolerating one duplicate."""
+    old = 0
+    try:
+        old = int(PID_FILE.read_text().strip())
+    except Exception:
+        old = 0
+    if old and old != os.getpid() and pid_alive(old):
+        cmd = pid_cmdline(old)
+        if "watch.py" in cmd or "agent-bus" in cmd:
+            log(f"PIDFILE takeover: SIGTERM previous watcher pid={old} ({cmd})")
+            try:
+                os.kill(old, signal.SIGTERM)
+            except Exception as e:
+                log(f"PIDFILE takeover: kill failed: {type(e).__name__}: {e}")
+            deadline = time.time() + 2.0
+            while time.time() < deadline and pid_alive(old):
+                time.sleep(0.1)
+            if pid_alive(old):
+                log(f"PIDFILE takeover: pid={old} still alive after 2s — proceeding anyway")
+        else:
+            log(f"PIDFILE: pid={old} is not an agent-bus watcher ({cmd or 'unknown'}) — ignoring")
+    try:
+        PID_FILE.write_text(str(os.getpid()))
+    except Exception as e:
+        log(f"PIDFILE write failed: {type(e).__name__}: {e}")
+
+
+def release_pidfile():
+    """Remove the pidfile only if it still names us — a successor that took over
+    while we were shutting down must keep its claim."""
+    try:
+        if int(PID_FILE.read_text().strip()) == os.getpid():
+            PID_FILE.unlink()
+    except Exception:
+        pass
 
 
 def emit_if_relevant(filename: str):
@@ -206,6 +381,7 @@ def watch_poll():
 
 def main():
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    atexit.register(release_pidfile)  # covers both SIGTERM (via sys.exit) and clean exit
     host = socket.gethostname()
     sid = os.environ.get("CLAUDE_CODE_SESSION_ID", "(no-sid)")
     if shutil.which("inotifywait"):
@@ -215,7 +391,10 @@ def main():
     else:
         backend = "poll"
     log(f"START backend={backend} host={host} session_id={sid} inbox={INBOX}")
+    claim_pidfile()
     auto_rebind_from_memo()
+    bind_lease()
+    threading.Thread(target=heartbeat_loop, daemon=True).start()
     try:
         if backend == "inotifywait":
             watch_inotify()

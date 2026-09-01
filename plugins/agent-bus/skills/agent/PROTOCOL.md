@@ -45,11 +45,16 @@ The watcher pre-filters: notifications addressed to other agents should never re
 ## Bus state directory
 
 For reference (almost never needed):
-- `~/.claude/bus/registry/<NAME>.json` — live registrations (keyed on hostname)
+- `~/.claude/bus/registry/<NAME>.json` — live registrations (keyed on `session_id`, with a watcher heartbeat lease)
 - `~/.claude/bus/inbox/<TO>--<TS>--<FROM>--<RAND>.json` — pending messages
 - `~/.claude/bus/cwd-memo/<sha>.json` — per-host-directory remembered name (survives /resume)
+- `~/.claude/bus/session-cwd/<session_id>.json` — this session's host_cwd, captured at session start
 - `~/.claude/bus/archive/` — handled messages
-- `~/.claude/bus/log/watcher.log` — diagnostics
+- `~/.claude/bus/log/watcher.log` — diagnostics; `log/watcher-<hostname>.pid` — the one live watcher
+
+## If notifications stop arriving
+
+The watcher must run under the **`Monitor`** tool (`command: agent-bus watch`, `persistent: true`). If `Monitor` isn't in your visible toolset it is DEFERRED — load it with `ToolSearch` (`select:Monitor`) and call it. Never run `agent-bus watch` as a background Bash task instead: background Bash only notifies on process exit, the watcher never exits, and every message would be swallowed silently. If `Monitor` is truly unavailable, tell the user rather than improvise.
 
 ## Example
 

@@ -39,9 +39,9 @@ Or — easier — just ask Claude in natural language:
 Incoming messages are auto-handled by the receiving Claude — you'll see lines like:
 
 ```
-📨 from CODE (id=…):
+📥 ← from CODE  [08:43:20] (id=…):
 src/server/auth/middleware.ts
-📨 end
+📥 end
 ```
 
 …and Claude decides whether to reply or hand off to you.
@@ -52,7 +52,8 @@ src/server/auth/middleware.ts
 - **Pre-filtered notifications.** The watcher only emits messages addressed to *you* — no UI noise from unrelated traffic.
 - **Backlog replay.** Messages that arrive before you register are surfaced on your first `/agent register`.
 - **Native file watcher.** Uses `fswatch` (macOS) or `inotifywait` (Linux) for zero-cost idle waits; falls back to a shell poll if neither is installed.
-- **Send-time visibility.** `/agent send X` warns immediately if no session is currently registered as `X`.
+- **Send-time visibility.** `/agent send X` warns immediately if no session is registered as `X` — or if one is registered but its watcher stopped heartbeating, i.e. that session is dead and won't read you.
+- **Self-healing registrations.** Each registration holds a 5-minute watcher lease. A session that is force-killed frees its name automatically; a live one can never be reclaimed out from under it.
 
 ## Commands
 

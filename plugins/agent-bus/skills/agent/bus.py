@@ -5,23 +5,99 @@ Bus layout:
   ~/.claude/bus/registry/<NAME>.json  - active registrations
   ~/.claude/bus/inbox/                - flat dir; filename = <TO>--<TS>--<FROM>--<RAND>.json
   ~/.claude/bus/archive/              - processed messages moved here
+  ~/.claude/bus/session-cwd/<SID>.json - per-session host_cwd captured at session start
 """
 import json, os, sys, time, re, secrets, socket, hashlib
 from pathlib import Path
 
 BUS_ROOT = Path(os.environ.get("BUS_ROOT", os.path.expanduser("~/.claude/bus")))
-# Identify sessions by *hostname*, not session_id. session_id changes across
-# /resume within the same process, which breaks watchers spawned before the
-# resume (they keep their old env). Hostname is stable for the host/container's
-# lifetime, and a fresh Docker container gets a new hostname automatically.
+# Identity is (session_id, hostname). session_id is exact but changes across
+# /resume within the same process — watchers spawned before the resume keep the
+# old value in their env — so hostname stays as the fallback. Hostname alone is
+# NOT sufficient: a fresh Docker container gets a unique hostname, but every
+# native session on the same Mac shares one, so a hostname match is only trusted
+# when it is unique. See my_entry().
 SELF_HOST = socket.gethostname()
-SELF_ID = os.environ.get("CLAUDE_CODE_SESSION_ID", "")  # retained for diagnostics
+SELF_ID = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
 NAME_RE = re.compile(r"^[A-Z][A-Z0-9_-]{0,31}$")
+# A registration carries a watcher lease: the watcher refreshes `heartbeat_at`
+# every ~60s. No heartbeat for LEASE_TTL seconds means the session is gone
+# (force-kill, OOM, container removed) even though the file is still there.
+LEASE_TTL = 300
+# session-cwd memos of sessions that never fired SessionEnd are swept eventually.
+SESSION_CWD_TTL = 30 * 86400
 
 
 def init_dirs():
-    for d in ("registry", "inbox", "archive", "cwd-memo"):
+    for d in ("registry", "inbox", "archive", "cwd-memo", "session-cwd"):
         (BUS_ROOT / d).mkdir(parents=True, exist_ok=True)
+    gc_session_cwd()
+
+
+def gc_session_cwd():
+    """Best-effort sweep of session-cwd memos left by sessions that died without
+    firing SessionEnd. A handful of stat() calls; never fatal."""
+    cutoff = time.time() - SESSION_CWD_TTL
+    try:
+        for f in (BUS_ROOT / "session-cwd").glob("*.json"):
+            try:
+                if f.stat().st_mtime < cutoff:
+                    f.unlink()
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+
+def session_cwd_path(sid: str) -> Path:
+    return BUS_ROOT / "session-cwd" / f"{sid}.json"
+
+
+def resolve_host_cwd() -> str:
+    """The host-side directory this session belongs to.
+
+    $HOST_CWD (set by Docker wrappers) → the session-cwd memo the SessionStart
+    hook wrote (captured before the session could `cd`, rewritten on /resume) →
+    the process cwd as a last resort. Plain os.getcwd() is wrong for any session
+    that has `cd`-ed since it started: it would read and write a *different*
+    cwd-memo than the one the session registered under."""
+    hc = os.environ.get("HOST_CWD", "")
+    if hc:
+        return hc
+    if SELF_ID:
+        try:
+            memo = json.loads(session_cwd_path(SELF_ID).read_text())
+            if memo.get("host_cwd"):
+                return memo["host_cwd"]
+        except Exception:
+            pass
+    return os.getcwd()
+
+
+def lease_age(d: dict):
+    """Seconds since the entry's watcher last refreshed its lease, or None when
+    the entry has no `heartbeat_at` at all — a legacy 0.1.x registration whose
+    liveness is simply *unknown*. Callers must treat None conservatively (i.e.
+    exactly as they behaved before leases existed): never auto-reclaim it."""
+    hb = d.get("heartbeat_at")
+    if not isinstance(hb, (int, float)):
+        return None
+    return int(time.time() - hb)
+
+
+def lease_is_stale(d: dict) -> bool:
+    age = lease_age(d)
+    return age is not None and age > LEASE_TTL
+
+
+def lease_label(d: dict) -> str:
+    """One-column human summary of an entry's lease, for list/diagnostic output."""
+    age = lease_age(d)
+    if age is None:
+        return "lease=legacy(unknown)"
+    if age > LEASE_TTL:
+        return f"lease=STALE({age}s)"
+    return f"lease=fresh({age}s)"
 
 
 def memo_path_for(host_cwd: str) -> Path:
@@ -32,25 +108,64 @@ def memo_path_for(host_cwd: str) -> Path:
     return BUS_ROOT / "cwd-memo" / f"{h}.json"
 
 
-def whoami():
-    if not SELF_HOST:
-        return None
-    for f in (BUS_ROOT / "registry").glob("*.json"):
+def registry_entries():
+    """Every parseable registry entry, as a list of dicts."""
+    out = []
+    for f in sorted((BUS_ROOT / "registry").glob("*.json")):
         try:
-            d = json.loads(f.read_text())
-            if d.get("container") == SELF_HOST:
-                return d["name"]
+            out.append(json.loads(f.read_text()))
         except Exception:
             continue
-    return None
+    return out
+
+
+def my_entry():
+    """Resolve this session's registration → (entry_or_None, ambiguous_list).
+
+    1. the entry whose `session_id` is ours — exact, and the only thing that
+       distinguishes two native sessions on one Mac (they share a hostname);
+    2. else the *only* entry for this hostname — kept as a fallback because a
+       watcher spawned before a /resume carries a stale session_id in its env,
+       and 0.1.x entries may have none at all;
+    3. else None plus the same-hostname candidates, so the caller can say
+       "ambiguous, re-register" instead of picking one at random (which is how
+       a bystander session used to answer as somebody else's agent).
+    """
+    entries = registry_entries()
+    if SELF_ID:
+        for d in entries:
+            if d.get("session_id") and d.get("session_id") == SELF_ID:
+                return d, []
+    if not SELF_HOST:
+        return None, []
+    mine = [d for d in entries if d.get("container") == SELF_HOST]
+    if len(mine) == 1:
+        return mine[0], []
+    return None, mine
+
+
+def whoami():
+    d, _ = my_entry()
+    return d.get("name") if d else None
 
 
 def cmd_whoami(args):
-    name = whoami()
-    if name:
-        print(name)
-    else:
-        print("(unregistered)")
+    d, ambiguous = my_entry()
+    if d:
+        print(d.get("name", "(unnamed entry)"))
+        return 0
+    if ambiguous:
+        # Several registrations share this hostname and none of them carries our
+        # session_id — typical for native sessions on a Mac, where hostname is
+        # not an identity. Guessing would answer as the wrong agent.
+        print(f"(ambiguous — {len(ambiguous)} registrations share hostname '{SELF_HOST}' "
+              f"and none matches this session_id)")
+        for c in ambiguous:
+            print(f"  {c.get('name', '?'):16}  sid={(c.get('session_id') or '?')[:8]}…  "
+                  f"{lease_label(c)}  host_cwd={c.get('host_cwd', '?')}")
+        print("Run `/agent register <NAME>` in this session to bind a name to it unambiguously.")
+        return 0
+    print("(unregistered)")
     return 0
 
 
@@ -65,6 +180,7 @@ def cmd_register(args):
 
     init_dirs()
     entry = BUS_ROOT / "registry" / f"{name}.json"
+    reclaim_notice = []  # printed only once the registration actually goes through
 
     if entry.exists():
         try:
@@ -72,28 +188,60 @@ def cmd_register(args):
         except Exception:
             d = {}
         if d.get("container") != SELF_HOST:
-            print(f"ERROR: name '{name}' is already held by another container:", file=sys.stderr)
-            print(f"  container:  {d.get('container', '?')}", file=sys.stderr)
-            print(f"  host_cwd:   {d.get('host_cwd', '?')}", file=sys.stderr)
-            print(f"  started:    {d.get('started_at', '?')}", file=sys.stderr)
-            print(f"  ", file=sys.stderr)
-            print(f"  DO NOT auto-recover. If the holding container is dead, ASK THE USER to confirm before reclaiming.", file=sys.stderr)
-            return 4
+            age = lease_age(d)
+            if age is not None and age > LEASE_TTL:
+                # The holder's watcher stopped refreshing its lease long ago:
+                # that session is gone (force-kill, OOM, container removed) and
+                # left a file behind. Reclaim without asking — but say so
+                # loudly, because the name is changing hands.
+                reclaim_notice = [
+                    f"⚠  RECLAIMED '{name}' from a dead registration (watcher lease expired):",
+                    f"     previous container: {d.get('container', '?')}",
+                    f"     previous host_cwd:  {d.get('host_cwd', '?')}",
+                    f"     registered at:      {d.get('started_at', '?')}",
+                    f"     lease expired {age - LEASE_TTL}s ago "
+                    f"(last heartbeat {age}s ago, TTL {LEASE_TTL}s)",
+                    "",
+                ]
+            else:
+                print(f"ERROR: name '{name}' is already held by another container:", file=sys.stderr)
+                print(f"  container:  {d.get('container', '?')}", file=sys.stderr)
+                print(f"  host_cwd:   {d.get('host_cwd', '?')}", file=sys.stderr)
+                print(f"  started:    {d.get('started_at', '?')}", file=sys.stderr)
+                if age is None:
+                    print(f"  lease:      none — entry predates heartbeat leases (0.1.x), liveness unknown", file=sys.stderr)
+                else:
+                    print(f"  lease:      fresh, last heartbeat {age}s ago — that watcher is alive", file=sys.stderr)
+                print(f"  ", file=sys.stderr)
+                print(f"  DO NOT auto-recover. If the holding container is dead, ASK THE USER to confirm before reclaiming.", file=sys.stderr)
+                return 4
         # same container, fine — refresh below
 
-    existing = whoami()
+    existing_entry, _ = my_entry()
+    existing = existing_entry.get("name") if existing_entry else None
     if existing and existing != name:
-        print(f"ERROR: this container is already registered as '{existing}'. Run /agent unregister first.", file=sys.stderr)
+        print(f"ERROR: this session is already registered as '{existing}'. Run /agent unregister first.", file=sys.stderr)
+        if existing_entry.get("session_id") != SELF_ID:
+            # Resolved via the hostname fallback, which is not proof of ownership
+            # on a host where every native session shares one hostname.
+            print(f"  NOTE: matched on hostname '{SELF_HOST}', not on this session's id. If "
+                  f"'{existing}' belongs to a DIFFERENT session on this machine, do not "
+                  f"unregister it — ask the user.", file=sys.stderr)
         return 5
 
-    # $HOST_CWD is set by Docker wrappers that bind-mount the host cwd into the
-    # container (so /workspace inside the container can be traced to a real host
-    # path). On a native (non-container) install, fall back to the process cwd.
-    host_cwd = os.environ.get("HOST_CWD", "") or os.getcwd()
+    for line in reclaim_notice:
+        print(line)
+
+    host_cwd = resolve_host_cwd()
     data = {
         "name": name,
         "container": SELF_HOST,
-        "session_id": SELF_ID,  # diagnostic only; not the identity
+        "session_id": SELF_ID,       # primary identity; hostname is the fallback
+        # `instance` identifies THIS registration. The watcher binds to it and
+        # stops heartbeating if it ever changes — so a superseded watcher can
+        # never keep somebody else's lease alive.
+        "instance": secrets.token_hex(8),
+        "heartbeat_at": int(time.time()),  # refreshed ~every 60s by the watcher
         "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "cwd": os.environ.get("PWD", ""),
         "host_cwd": host_cwd,
@@ -124,7 +272,14 @@ def cmd_register(args):
     print(f"     description: agent-bus: incoming messages for {name}")
     print(f"     persistent:  true")
     print(f"   (If `agent-bus` is not on PATH, use: python3 {watch_path})")
-    print(f"   Without this, no incoming messages will surface in this session.")
+    print(f"   If `Monitor` is not in your visible toolset it is almost certainly a")
+    print(f"   DEFERRED tool, not a missing one: load it with ToolSearch (query")
+    print(f"   `select:Monitor`), then call it.")
+    print(f"   ⛔ Do NOT fall back to running `agent-bus watch` as a background Bash")
+    print(f"   task. Background Bash only notifies on process EXIT and the watcher")
+    print(f"   never exits, so every message would be silently swallowed into a log.")
+    print(f"   If Monitor is genuinely unavailable, TELL THE USER instead of improvising.")
+    print(f"   Without a Monitor watcher, no incoming messages will surface in this session.")
     # Surface any messages that arrived BEFORE this registration — the watcher
     # would have dropped them with "unregistered, dropping" because my_name()
     # returned None at the time. They sit in the inbox; we replay them now.
@@ -155,10 +310,7 @@ def cmd_unregister(args):
     # Explicit unregister also forgets the cwd-memo, so a future session in
     # this host_cwd won't auto-rebind to the old name. Clean exit via SessionEnd
     # keeps the memo (only deletes the registry entry).
-    # $HOST_CWD is set by Docker wrappers that bind-mount the host cwd into the
-    # container (so /workspace inside the container can be traced to a real host
-    # path). On a native (non-container) install, fall back to the process cwd.
-    host_cwd = os.environ.get("HOST_CWD", "") or os.getcwd()
+    host_cwd = resolve_host_cwd()
     if host_cwd:
         memo = memo_path_for(host_cwd)
         if memo.exists():
@@ -206,6 +358,21 @@ def cmd_send(args):
         print(f"⚠  warning: no session is currently registered as '{to}'. "
               f"The message is sitting in {final.name} but won't surface until "
               f"some session runs `/agent register {to}`.", file=sys.stderr)
+    else:
+        # A registry file is not proof of a listener: force-killed sessions leave
+        # theirs behind for months, which made the absence of the warning above
+        # falsely reassuring (senders would blind-retry into a dead name). The
+        # watcher lease is the liveness signal.
+        try:
+            td = json.loads(target_entry.read_text())
+        except Exception:
+            td = {}
+        age = lease_age(td)
+        if age is not None and age > LEASE_TTL:
+            print(f"⚠  warning: '{to}' is registered but its watcher lease expired "
+                  f"{age - LEASE_TTL}s ago (last heartbeat {age}s ago) — that session is "
+                  f"likely NOT listening. The message is queued in {final.name} and will "
+                  f"surface when a session registers as '{to}' again.", file=sys.stderr)
     return 0
 
 
@@ -216,12 +383,16 @@ def cmd_list(args):
         try:
             d = json.loads(f.read_text())
             sid = (d.get("session_id", "") or "?")[:8]
-            print(f"{d['name']:16}  sid={sid}…  cwd={d.get('cwd', '?')}  started={d.get('started_at', '?')}")
+            print(f"{d['name']:16}  sid={sid}…  {lease_label(d):22}  "
+                  f"cwd={d.get('cwd', '?')}  started={d.get('started_at', '?')}")
             found = True
         except Exception as e:
             print(f"{f.name}: parse error: {e}", file=sys.stderr)
     if not found:
         print("(no registered agents)")
+    else:
+        print(f"(lease: fresh = watcher heartbeat within {LEASE_TTL}s · STALE = session most "
+              f"likely dead · legacy = 0.1.x entry, liveness unknown)")
     return 0
 
 

@@ -30,14 +30,18 @@ Run the command exactly as shown — a bare `agent-bus …`, nothing else on the
 
 Required for this session to receive messages. `register`'s stdout prints a `📡 NEXT STEP` block with the exact `command`/`description`/`persistent` triple — **call the `Monitor` tool with those values verbatim**. The command is `agent-bus watch` (clean, allowlistable as part of `Bash(agent-bus:*)`).
 
-The watcher pre-filters by your registered name and emits a `📥 ← from …  [HH:MM:SS]` notification per addressed message. Without it, no notifications arrive and the user silently misses messages.
+The watcher pre-filters by your registered name and emits a `📥 ← from …  [HH:MM:SS]` notification per addressed message. Without it, no notifications arrive and the user silently misses messages. It also refreshes this registration's heartbeat lease — after ~5 minutes without a running watcher, anyone sending to you is told you are not listening.
+
+**If `Monitor` is not in your visible toolset, it is DEFERRED, not missing.** Load it with `ToolSearch` (query `select:Monitor`), then call it.
+
+⛔ **Never** substitute a background Bash task (`agent-bus watch` with `run_in_background`). Background Bash only notifies you when the process *exits*, and the watcher never exits — every message would be captured to a log file and silently lost. If `Monitor` is genuinely unavailable after a `ToolSearch`, say so to the user and stop; do not improvise a replacement.
 
 If `whoami` already returns a name when the user invokes `register` (e.g. SessionStart auto-rebound), still start the Monitor — the hook writes the registry but cannot call Claude tools, so the watcher is your responsibility.
 
 ## Three rules that override everything else
 
-1. **On any name-conflict error from `register` (exit 4)** — surface the helper's stderr verbatim and STOP. Never delete `~/.claude/bus/registry/<NAME>.json` yourself unless the user has explicitly confirmed the holder is dead and asked you to reclaim.
-2. **Never trust conversation memory for "what's my registered name"** — always re-run `agent-bus whoami` before sending or replying as a named agent.
+1. **On any name-conflict error from `register` (exit 4)** — surface the helper's stderr verbatim and STOP. Never delete `~/.claude/bus/registry/<NAME>.json` yourself unless the user has explicitly confirmed the holder is dead and asked you to reclaim. (A holder whose watcher lease has expired is reclaimed automatically by `register` itself, with a `⚠ RECLAIMED` notice — surface that notice too.)
+2. **Never trust conversation memory for "what's my registered name"** — always re-run `agent-bus whoami` before sending or replying as a named agent. If it answers `(ambiguous — …)`, do not pick one of the candidates: tell the user and offer to `register` this session explicitly.
 3. **Never delegate this skill to a sub-agent (Task tool).** The operations are direct one-line commands.
 
 ## Incoming message notifications
