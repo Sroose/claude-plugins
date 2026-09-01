@@ -14,6 +14,7 @@ A thin wrapper over the `agent-bus` command (a launcher the plugin puts on the B
 | `register [me as] <NAME>` or `/agent register <NAME>` | `agent-bus register <NAME>` **then** start the inbox watcher (see below) |
 | `unregister` or `/agent unregister` | `agent-bus unregister` |
 | `whoami`, `who am I` or `/agent whoami` | `agent-bus whoami` |
+| `status`, "am I still registered/listening", or after a compaction | `agent-bus status` |
 | `list [agents]` or `/agent list` | `agent-bus list` |
 | `ask <NAME> "<msg>"`, `send <NAME>...`, or `/agent ask <NAME> "<msg>"` | `agent-bus send <NAME> "<msg>"` |
 | `inbox [NAME]` or `/agent inbox` | `agent-bus inbox [NAME]` |
@@ -37,6 +38,16 @@ The watcher pre-filters by your registered name and emits a `📥 ← from …  
 ⛔ **Never** substitute a background Bash task (`agent-bus watch` with `run_in_background`). Background Bash only notifies you when the process *exits*, and the watcher never exits — every message would be captured to a log file and silently lost. If `Monitor` is genuinely unavailable after a `ToolSearch`, say so to the user and stop; do not improvise a replacement.
 
 If `whoami` already returns a name when the user invokes `register` (e.g. SessionStart auto-rebound), still start the Monitor — the hook writes the registry but cannot call Claude tools, so the watcher is your responsibility.
+
+## After a compaction — look, don't guess
+
+Compaction does not kill the Monitor task or the watcher process; it erases *your* memory that they exist. Re-registering or starting a second watcher on that basis is the standard failure. One call re-derives everything:
+
+```bash
+agent-bus status
+```
+
+It prints your registration (or "ambiguous"/"unregistered"), the watcher pid and whether it's alive, pending message count, and a verdict line with the single next action. Follow that verdict — do not start a watcher when one is already alive. The `SessionStart` hook also re-injects this state into your context after every compaction, so it's usually already there.
 
 ## Three rules that override everything else
 

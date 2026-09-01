@@ -1,30 +1,47 @@
 #!/usr/bin/env python3
 """Statusline fragment for agent-bus. Prints the registered agent name for
-this container, or empty if unregistered.
+THIS session, or empty if unregistered.
 
-Identity is by container hostname (stable across /resume), not session_id.
-Stdin is read and ignored (CC pipes JSON to statusline scripts but we don't
-need it).
+Resolution order matches bus.py my_entry(): the session_id from CC's session
+JSON on stdin (falling back to $CLAUDE_CODE_SESSION_ID), then a *unique*
+hostname match. Hostname alone is not an identity — every native session on a
+Mac shares one, so a first-match wins scan labels them all the same.
 """
 import json, sys, os, glob, socket
 
-# Drain stdin so the parent doesn't block.
+BUS_ROOT = os.environ.get("BUS_ROOT", os.path.expanduser("~/.claude/bus"))
+
+# Drain stdin so the parent doesn't block; it carries CC's session JSON.
+raw = ""
 try:
     if not sys.stdin.isatty():
-        sys.stdin.read()
+        raw = sys.stdin.read()
 except Exception:
     pass
-
+try:
+    sid = (json.loads(raw or "{}").get("session_id", "") or "")
+except Exception:
+    sid = ""
+sid = sid or os.environ.get("CLAUDE_CODE_SESSION_ID", "")
 host = socket.gethostname()
-if not host:
-    sys.exit(0)
 
-for f in glob.glob(os.path.expanduser("~/.claude/bus/registry/*.json")):
+entries = []
+for f in sorted(glob.glob(os.path.join(BUS_ROOT, "registry", "*.json"))):
     try:
         with open(f) as fh:
-            d = json.load(fh)
-        if d.get("container") == host:
-            print(d["name"])
-            break
+            entries.append(json.load(fh))
     except Exception:
         continue
+
+name = ""
+for d in entries:
+    if sid and d.get("session_id") == sid:
+        name = d.get("name", "")
+        break
+else:
+    mine = [d for d in entries if host and d.get("container") == host]
+    if len(mine) == 1:
+        name = mine[0].get("name", "")
+
+if name:
+    print(name)

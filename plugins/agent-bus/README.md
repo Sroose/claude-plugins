@@ -53,6 +53,7 @@ src/server/auth/middleware.ts
 - **Backlog replay.** Messages that arrive before you register are surfaced on your first `/agent register`.
 - **Native file watcher.** Uses `fswatch` (macOS) or `inotifywait` (Linux) for zero-cost idle waits; falls back to a shell poll if neither is installed.
 - **Send-time visibility.** `/agent send X` warns immediately if no session is registered as `X` — or if one is registered but its watcher stopped heartbeating, i.e. that session is dead and won't read you.
+- **Survives compaction.** Compaction erases Claude's memory of its own watcher, not the watcher itself — so the `SessionStart` hook re-injects the live state (registered name, lease, watcher pid) after every compaction, and `/agent status` re-derives it on demand. No more accidental re-registers or duplicate watchers.
 - **Self-healing registrations.** Each registration holds a 5-minute watcher lease. A session that is force-killed frees its name automatically; a live one can never be reclaimed out from under it.
 
 ## Commands
@@ -62,6 +63,7 @@ src/server/auth/middleware.ts
 | `/agent register <NAME>` | Claim a name in this session. Surfaces any pending messages addressed to it. |
 | `/agent unregister` | Release the name and clear its cwd-memo. |
 | `/agent whoami` | Show this session's current registered name. |
+| `/agent status` | Registration + watcher liveness + pending messages + what to do next. |
 | `/agent list` | List all live registrations on this machine. |
 | `/agent ask <T> "<msg>"` (alias: `send`) | Send to another named session. |
 | `/agent inbox [NAME]` | List pending messages. |

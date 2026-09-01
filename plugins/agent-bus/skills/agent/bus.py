@@ -7,7 +7,7 @@ Bus layout:
   ~/.claude/bus/archive/              - processed messages moved here
   ~/.claude/bus/session-cwd/<SID>.json - per-session host_cwd captured at session start
 """
-import json, os, sys, time, re, secrets, socket, hashlib
+import json, os, sys, time, re, secrets, socket, hashlib, subprocess
 from pathlib import Path
 
 BUS_ROOT = Path(os.environ.get("BUS_ROOT", os.path.expanduser("~/.claude/bus")))
@@ -26,6 +26,10 @@ NAME_RE = re.compile(r"^[A-Z][A-Z0-9_-]{0,31}$")
 LEASE_TTL = 300
 # session-cwd memos of sessions that never fired SessionEnd are swept eventually.
 SESSION_CWD_TTL = 30 * 86400
+# The watcher's singleton pidfile for this host (written by watch.py — same
+# expression there; kept in both files because neither script imports the other).
+PID_FILE = (BUS_ROOT / "log" /
+            ("watcher-%s.pid" % re.sub(r"[^A-Za-z0-9_.-]", "_", SELF_HOST or "unknown")))
 
 
 def init_dirs():
@@ -100,6 +104,38 @@ def lease_label(d: dict) -> str:
     return f"lease=fresh({age}s)"
 
 
+def pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+        return True
+    except Exception:
+        return False
+
+
+def watcher_state():
+    """(pid, alive, cmdline) for this host's watcher, or (None, False, "") when
+    there is no pidfile. `ps` rather than /proc — macOS has neither, and a pid
+    that got recycled by an unrelated process must not read as a live watcher."""
+    try:
+        pid = int(PID_FILE.read_text().strip())
+    except Exception:
+        return None, False, ""
+    if not pid_alive(pid):
+        return pid, False, ""
+    try:
+        out = subprocess.run(["ps", "-p", str(pid), "-o", "command="],
+                             capture_output=True, text=True, timeout=5)
+        cmd = (out.stdout or "").strip()
+    except Exception:
+        cmd = ""
+    # Only call it dead when `ps` positively names a *different* process. If ps
+    # is unavailable or says nothing, the pid is alive and we say so — reporting
+    # "dead" would push the agent into starting a second watcher.
+    if cmd and "watch.py" not in cmd and "agent-bus" not in cmd:
+        return pid, False, cmd
+    return pid, True, cmd
+
+
 def memo_path_for(host_cwd: str) -> Path:
     """The cwd-memo file path for a given host_cwd. Survives unregister so a
     later session in the same host directory (e.g. when a Docker container is
@@ -166,6 +202,73 @@ def cmd_whoami(args):
         print("Run `/agent register <NAME>` in this session to bind a name to it unambiguously.")
         return 0
     print("(unregistered)")
+    return 0
+
+
+def cmd_status(args):
+    """Everything this session needs to re-derive its own bus state in one call.
+
+    Written for the post-compaction case: compaction doesn't kill the Monitor
+    task or watch.py, it destroys the *model's* memory that they exist — after
+    which agents re-register or start a second watcher. This is the cheap,
+    allowlist-clean way to look instead of guess. Always exits 0: it is a
+    diagnostic, and a non-zero exit would read as "the bus is broken"."""
+    init_dirs()
+    d, ambiguous = my_entry()
+    name = d.get("name") if d else None
+
+    print(f"host:         {SELF_HOST or '(unknown)'}   session_id={SELF_ID or '(unset)'}")
+    if d:
+        print(f"registration: {name}   sid={(d.get('session_id') or '?')[:8]}…  "
+              f"instance={(d.get('instance') or '(legacy)')[:8]}  {lease_label(d)}")
+        print(f"              host_cwd={d.get('host_cwd', '?')}  started={d.get('started_at', '?')}")
+    elif ambiguous:
+        print(f"registration: (ambiguous — {len(ambiguous)} registrations share hostname "
+              f"'{SELF_HOST}' and none matches this session_id)")
+        for c in ambiguous:
+            print(f"                {c.get('name', '?'):16}  sid={(c.get('session_id') or '?')[:8]}…  "
+                  f"{lease_label(c)}  host_cwd={c.get('host_cwd', '?')}")
+    else:
+        print(f"registration: (unregistered)")
+
+    pid, alive, cmd = watcher_state()
+    if pid is None:
+        print(f"watcher:      no pidfile at {PID_FILE}")
+    else:
+        print(f"watcher:      pid {pid} {'ALIVE' if alive else 'DEAD'}   ({PID_FILE})")
+        if cmd:
+            print(f"              {cmd}")
+
+    pending = sorted((BUS_ROOT / "inbox").glob(f"{name}--*.json")) if name else []
+    if name:
+        print(f"inbox:        {len(pending)} pending message(s) for {name}")
+        for p in pending[:5]:
+            print(f"                • {p.stem}")
+        if len(pending) > 5:
+            print(f"                … and {len(pending) - 5} more")
+    else:
+        print(f"inbox:        (n/a — no registration resolved)")
+
+    # One verdict line, one next action. Ordered by what blocks what.
+    if not d and ambiguous:
+        print(f"verdict:      AMBIGUOUS identity — run `agent-bus register <NAME>` in THIS "
+              f"session to bind a name to it. Do not act as any of the candidates above.")
+    elif not d:
+        print(f"verdict:      NOT registered — run `agent-bus register <NAME>`, then start the "
+              f"watcher via the Monitor tool as that command's output instructs.")
+    elif not alive:
+        print(f"verdict:      NO WATCHER — registered as {name} ({lease_label(d)}) but no live "
+              f"watcher. Start it with the Monitor tool (command `agent-bus watch`, "
+              f"persistent true; if Monitor isn't visible, load it with ToolSearch "
+              f"`select:Monitor`). Never run it as a background Bash task.")
+    elif lease_is_stale(d):
+        print(f"verdict:      LEASE STALE — a watcher is alive (pid {pid}) but it is not "
+              f"refreshing {name}'s lease, so it is bound to a different registration. "
+              f"Re-run `agent-bus register {name}` to take the lease back.")
+    else:
+        print(f"verdict:      OK — registered as {name}, watcher alive (pid {pid}), "
+              f"{lease_label(d)}"
+              + (f", {len(pending)} message(s) waiting" if pending else ""))
     return 0
 
 
@@ -460,6 +563,7 @@ def cmd_parse_filename(args):
 COMMANDS = {
     "init":          lambda a: (init_dirs(), print(f"initialized {BUS_ROOT}"))[1] or 0,
     "whoami":        cmd_whoami,
+    "status":        cmd_status,
     "register":      cmd_register,
     "unregister":    cmd_unregister,
     "send":          cmd_send,

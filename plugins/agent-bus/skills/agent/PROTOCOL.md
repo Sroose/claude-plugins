@@ -54,6 +54,8 @@ For reference (almost never needed):
 
 ## If notifications stop arriving
 
+First run `agent-bus status`: it re-derives your registration, the watcher's pid and liveness, and any pending messages, and ends with a one-line verdict naming the next action. Do this instead of re-registering or starting another watcher on a hunch — especially right after a compaction, which wipes your memory of the watcher without stopping it.
+
 The watcher must run under the **`Monitor`** tool (`command: agent-bus watch`, `persistent: true`). If `Monitor` isn't in your visible toolset it is DEFERRED — load it with `ToolSearch` (`select:Monitor`) and call it. Never run `agent-bus watch` as a background Bash task instead: background Bash only notifies on process exit, the watcher never exits, and every message would be swallowed silently. If `Monitor` is truly unavailable, tell the user rather than improvise.
 
 ## Example

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """SessionStart hook for agent-bus.
 
-Three jobs:
+Four jobs:
 1. Inject protocol guidance into the session so Claude knows how to handle
    inbox notifications and how to resolve the helper script.
 2. Record this session's host_cwd in `session-cwd/<session_id>.json`. This hook
@@ -9,7 +9,13 @@ Three jobs:
    point — captured before the session can `cd` anywhere. Everything that keys
    off host_cwd (cwd-memo, auto-rebind) reads it back instead of calling
    os.getcwd() at some arbitrary later moment.
-3. Auto-rebind if there's a cwd-memo indicating this host directory was
+3. Re-inject this session's LIVE bus state (registration + watcher liveness).
+   This hook also fires with `source == "compact"`, which is the case that
+   matters: compaction does not kill the Monitor task or watch.py, it destroys
+   the *model's* knowledge that they exist — after which the agent re-registers
+   or starts a second watcher. Re-stating the facts after every compaction is
+   the fix.
+4. Auto-rebind if there's a cwd-memo indicating this host directory was
    previously registered as some agent name.
 
 (No symlink maintenance. The helper is resolved at call time via a
@@ -18,10 +24,74 @@ removed in 0.1.3 because a single shared ~/.claude/bus link can't serve a
 container and the host at once, and the repair logic was unreachable through
 a broken link.)
 """
-import json, sys, os, re, glob, time, socket, hashlib, secrets
+import json, sys, os, re, glob, time, socket, hashlib, secrets, subprocess
 from pathlib import Path
 
 BUS_ROOT = Path(os.environ.get("BUS_ROOT", os.path.expanduser("~/.claude/bus")))
+LEASE_TTL = 300  # keep in step with bus.py
+
+
+# The three helpers below mirror bus.py (my_entry / lease_label / watcher_state),
+# which is the authoritative implementation — `agent-bus status` prints the same
+# picture. They are inlined rather than imported so this hook keeps working no
+# matter where the plugin sits or what is on PATH: a hook that raises costs the
+# user their session start.
+def registry_entries():
+    out = []
+    for f in sorted(glob.glob(str(BUS_ROOT / "registry" / "*.json"))):
+        try:
+            with open(f) as fh:
+                out.append(json.load(fh))
+        except Exception:
+            continue
+    return out
+
+
+def resolve_entry(sid, host):
+    """(entry_or_None, ambiguous_candidates) — session_id match first, then a
+    *unique* hostname match (every native session on a Mac shares a hostname)."""
+    entries = registry_entries()
+    if sid:
+        for d in entries:
+            if d.get("session_id") and d.get("session_id") == sid:
+                return d, []
+    mine = [d for d in entries if d.get("container") == host] if host else []
+    if len(mine) == 1:
+        return mine[0], []
+    return None, mine
+
+
+def lease_label(d):
+    hb = d.get("heartbeat_at")
+    if not isinstance(hb, (int, float)):
+        return "lease=legacy(unknown)"
+    age = int(time.time() - hb)
+    return f"lease=STALE({age}s)" if age > LEASE_TTL else f"lease=fresh({age}s)"
+
+
+def watcher_state(host):
+    """(pid, alive) for this host's watcher pidfile, or (None, False)."""
+    pf = BUS_ROOT / "log" / ("watcher-%s.pid" % re.sub(r"[^A-Za-z0-9_.-]", "_", host or "unknown"))
+    try:
+        pid = int(pf.read_text().strip())
+    except Exception:
+        return None, False
+    try:
+        os.kill(pid, 0)
+    except Exception:
+        return pid, False
+    try:
+        out = subprocess.run(["ps", "-p", str(pid), "-o", "command="],
+                             capture_output=True, text=True, timeout=5)
+        cmd = (out.stdout or "").strip()
+    except Exception:
+        cmd = ""
+    # Only call it dead when `ps` positively names a different process; saying
+    # "dead" about a live watcher would push the agent into starting a second one.
+    if cmd and "watch.py" not in cmd and "agent-bus" not in cmd:
+        return pid, False
+    return pid, True
+
 
 try:
     inp = json.load(sys.stdin)
@@ -29,6 +99,9 @@ except Exception:
     inp = {}
 
 sid = inp.get("session_id", "")
+# "startup" | "resume" | "clear" | "compact" — `compact` is why the live-state
+# block below exists at all.
+source = inp.get("source", "")
 # $HOST_CWD is set by Docker wrappers that bind-mount the host cwd (so the
 # in-container cwd like /workspace can be disambiguated back to a real host
 # path). Outside of containers, fall back to the cwd the hook input reports.
@@ -143,6 +216,45 @@ if host_cwd:
                 f"If the user wanted a different name, run `/agent unregister` then "
                 f"register the desired name instead."
             )
+
+# ---- live state, re-injected on every start AND after every compaction ------
+# Runs last so it also reports a registration the auto-rebind above just wrote.
+# Silent when this session has no registration at all: nothing to preserve, and
+# the guidance above already covers how to register.
+try:
+    _entry, _ambiguous = resolve_entry(sid, socket.gethostname())
+    _pid, _alive = watcher_state(socket.gethostname())
+    if _entry:
+        _watcher = (f"A watcher pidfile for this host names pid {_pid} ({'ALIVE' if _alive else 'DEAD'})."
+                    if _pid is not None else
+                    "There is no watcher pidfile for this host, so no watcher is running.")
+        if _alive:
+            _action = ("Do NOT re-register and do NOT start a second watcher: a duplicate persistent "
+                       "Monitor plus the pidfile takeover would fight each other, and the survivor "
+                       "would be the wrong one.")
+        else:
+            _action = ("The watcher is not running — start it via the `Monitor` tool (`command: "
+                       "agent-bus watch`, `persistent: true`; load Monitor with ToolSearch "
+                       "`select:Monitor` if it isn't visible, and never substitute a background "
+                       "Bash task). Do NOT re-register: the name is already yours.")
+        guidance += (
+            f"\n\n[agent-bus live state]\n"
+            f"This session is registered as `{_entry.get('name', '?')}` ({lease_label(_entry)}). "
+            f"{_watcher} {_action} "
+            f"Run `agent-bus status` to re-verify this at any time — it re-derives "
+            f"registration, watcher liveness and pending messages in one call."
+        )
+    elif _ambiguous:
+        guidance += (
+            f"\n\n[agent-bus live state]\n"
+            f"{len(_ambiguous)} registrations share this hostname "
+            f"({', '.join(c.get('name', '?') for c in _ambiguous)}) and none matches this "
+            f"session's id, so this session's identity is AMBIGUOUS. Do not act as any of them; "
+            f"run `agent-bus status` for the details, and `agent-bus register <NAME>` to bind a "
+            f"name to this session."
+        )
+except Exception:
+    pass  # never let diagnostics break a session start
 
 out = {
     "hookSpecificOutput": {

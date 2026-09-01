@@ -12,6 +12,7 @@ How the plugin works under the hood, and the design choices behind it. Read this
 | Session identity | `session_id` first, hostname only as a *unique* fallback — see [Identity](#identity) |
 | Liveness | Each registration carries a watcher heartbeat lease; no refresh for 300s ⇒ the session is dead — see [Heartbeat leases](#heartbeat-leases) |
 | One watcher per host | `log/watcher-<hostname>.pid`: a starting watcher SIGTERMs the previous one |
+| Compaction resilience | State is re-derivable (`agent-bus status`) and re-injected by `SessionStart`, which also fires on `source=compact` — see [Compaction](#compaction) |
 | Surviving `/resume` | A `cwd-memo` per host directory persists past unregister; the next session's watcher auto-rebinds to that name on startup |
 | Conflict avoidance | Name conflicts are refused while the holder's lease is fresh; a dead holder (expired lease) is reclaimed automatically with a loud notice |
 | Late delivery | Messages that arrived before registration are surfaced on `/agent register` |
@@ -84,6 +85,17 @@ Each watcher writes `~/.claude/bus/log/watcher-<hostname>.pid` at startup, after
 
 Without this, orphaned watchers from dead sessions accumulate on the host: a live `watcher.log` showed ~9 pids reacting to each message and two of them emitting the same one, i.e. duplicate notifications in the receiving session.
 
+## Compaction
+
+Compaction destroys nothing on disk and kills no process: the Monitor task keeps running, `watch.py` keeps watching, the registration keeps its lease. What it destroys is the **model's** knowledge that any of it exists — and an agent that no longer remembers its watcher re-registers, or starts a second one, which then fights the incumbent over the pidfile.
+
+The fix is that none of this state has to be remembered:
+
+- **`agent-bus status`** re-derives it in one allowlist-clean call: registration (or `ambiguous`/`unregistered`), sid, instance, lease label, the watcher's pid and whether it is alive (`ps` cross-checked, so a recycled pid doesn't read as a watcher), pending message count, and a one-line verdict naming the single next action. It always exits 0 — it is a diagnostic, and a non-zero exit would itself read as "the bus is broken".
+- **The `SessionStart` hook** fires with `source` in `startup` / `resume` / `clear` / **`compact`**, and appends an `[agent-bus live state]` block whenever this session resolves to a registration: the name, the lease, the watcher pid and liveness, and an explicit "do not re-register, do not start a second watcher if one is alive". Ambiguous identity gets its own variant. Unregistered sessions get nothing — there is no state to preserve, and the general guidance already covers registering.
+
+The hook inlines its own copies of `my_entry` / `lease_label` / `watcher_state` rather than importing `bus.py`: a SessionStart hook that raises costs the user their session start, so it must not depend on the plugin's layout or on anything being on `PATH`. `bus.py` remains the authoritative implementation.
+
 ## Stable `host_cwd`
 
 `host_cwd` decides which `cwd-memo` a session reads and writes. It used to be `$HOST_CWD or os.getcwd()`, evaluated per call — so a session that `cd`-ed after registering silently addressed a *different* memo (two memos for one agent, in two directories, have been observed).
@@ -144,7 +156,7 @@ The watcher is started by the **`Monitor` tool** — never as a background Bash 
 
 | Hook | Purpose |
 |---|---|
-| `SessionStart` | Inject protocol guidance into Claude's context. Record `session-cwd/<session_id>.json`. If a cwd-memo exists for the current host_cwd and the name is free, auto-rebind (write the registry entry, with lease fields) and tell Claude to start the watcher. |
+| `SessionStart` | Inject protocol guidance into Claude's context, plus the `[agent-bus live state]` block (fires on `source=compact` too — see [Compaction](#compaction)). Record `session-cwd/<session_id>.json`. If a cwd-memo exists for the current host_cwd and the name is free, auto-rebind (write the registry entry, with lease fields) and tell Claude to start the watcher. |
 | `UserPromptSubmit` | Sync `sessionTitle` (the `/resume` picker label) to the registered name. |
 | `SessionEnd` | Unregister **the entry whose `session_id` matches the hook input's** — never a bare hostname match, which used to let any exiting native session delete a colleague's registration. Also deletes its own session-cwd record. Skipped on `exit_reason=resume`. |
 
@@ -181,6 +193,7 @@ The fragment script reads CC's session JSON from stdin (and falls back to `$CLAU
 
 | Symptom | Likely cause / fix |
 |---|---|
+| After a compaction: "am I still registered? is my watcher running?" | Run `agent-bus status` — one call re-derives registration, lease, watcher pid/liveness, pending messages, and prints the next action. The `SessionStart` hook (which fires on `source=compact`) also re-injects an `[agent-bus live state]` block, so the answer is usually already in context. Never re-register or start a second watcher just because you don't remember the first. |
 | "no session is currently registered as X" when sending | Target session hasn't run `/agent register X` yet — the message is queued in the inbox until it does |
 | "registered but its watcher lease expired Ns ago" when sending | X's session is dead (force-killed) or never started its Monitor watcher. The message is queued; don't retry into it. `/agent list` shows the lease state of every name. |
 | Incoming message never surfaced | Check `~/.claude/bus/log/watcher.log`. If no `EMIT` line for the filename appears, the watcher's `my_name()` doesn't match — the receiver isn't registered, or its identity is ambiguous. `/agent whoami` to check; `/agent register <NAME>` to force a backlog replay. |
