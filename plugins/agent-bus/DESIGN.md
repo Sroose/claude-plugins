@@ -14,7 +14,7 @@ How the plugin works under the hood, and the design choices behind it. Read this
 | One watcher per host | `log/watcher-<hostname>.pid`: a starting watcher SIGTERMs the previous one |
 | Compaction resilience | State is re-derivable (`agent-bus status`) and re-injected by `SessionStart`, which also fires on `source=compact` — see [Compaction](#compaction) |
 | Surviving `/resume` | A `cwd-memo` per host directory persists past unregister; the next session's watcher auto-rebinds to that name on startup |
-| Conflict avoidance | Name conflicts are refused while the holder's lease is fresh; a dead holder (expired lease) is reclaimed automatically with a loud notice |
+| Conflict avoidance | One decision table decides refresh / reclaim / refuse — see [Claiming a name](#claiming-a-name). A live holder is never displaced silently; `--force` is the confirmed override |
 | Late delivery | Messages that arrived before registration are surfaced on `/agent register` |
 | Clean exit | `SessionEnd` hook unregisters **only the exiting session's own entry** (matched on `session_id`). The cwd-memo persists so the next session in the same host directory rebinds automatically. |
 
@@ -51,8 +51,10 @@ on the Bash tool's PATH while the plugin is enabled). See Helper resolution belo
 Resolution order (`my_entry()`, implemented identically in `bus.py` and `watch.py`):
 
 1. the registry entry whose `session_id` equals `$CLAUDE_CODE_SESSION_ID` — exact;
-2. else, the entry for this hostname **if exactly one exists**;
+2. else, the entry for this hostname **if exactly one exists and its `host_cwd` doesn't contradict ours** (either side unknown ⇒ accepted, as before);
 3. else none — `whoami` prints the candidates and asks you to re-register.
+
+Rule 2's directory check is what stops a bystander session answering as an agent that merely shares its hostname; a pre-`/resume` watcher still passes it, because the stale `session_id` in its env resolves — via that sid's session-cwd record — to the same directory the entry names.
 
 Up to 0.1.5 identity was keyed on hostname alone. That works for containers (each gets a unique hostname) but is actively wrong on a Mac: **every native session shares one hostname**, so to the bus they were all the same agent. Consequences seen in the field: `whoami` answering with a bystander's name, and — worse — any native session's clean exit unregistering a long-running agent (see [Lifecycle](#hooks)).
 
@@ -73,11 +75,33 @@ What consumes the lease:
 
 | Caller | Fresh lease | Stale lease | No `heartbeat_at` (0.1.x entry) |
 |---|---|---|---|
-| `register <NAME>` conflict | refuse (exit 4) | auto-reclaim + loud notice (old container, host_cwd, how long expired) | refuse (exit 4) — liveness unknown, stay conservative |
+| `register <NAME>` conflict (rules 3–5 of [Claiming a name](#claiming-a-name)) | refuse (exit 4), `--force` to override | auto-reclaim + loud notice (old container, host_cwd, how long expired) | refuse (exit 4) — liveness unknown, stay conservative |
 | `send <NAME>` | silent | "registered but watcher lease expired Ns ago — likely not listening; message queued" | silent |
 | `list` | `lease=fresh(Ns)` | `lease=STALE(Ns)` | `lease=legacy(unknown)` |
 
 Legacy entries are deliberately treated exactly as 0.1.5 did, so a 0.1.5 session running concurrently during a rollout can never be reclaimed out from under itself.
+
+## Claiming a name
+
+`bus.py claim_decision(entry, my_host_cwd)` is the single authority on whether a session may take over an existing registration; `register` does nothing but act on its answer. Evaluated in order:
+
+| # | Condition | Action | Why |
+|---|---|---|---|
+| 1 | entry's `session_id` is non-empty and equals ours | **refresh** | it is literally this session |
+| 2 | entry's `container` == our hostname **and** both `host_cwd`s are non-empty and equal | **refresh-resume** | same host directory: a `/resume` renumbered our `session_id`, or this is the entry a pre-resume watcher still serves. Prints one line recording the `session_id` change. |
+| 3 | lease stale (`heartbeat_at` older than 300s) | **reclaim** | the holder is dead — loud notice, name changes hands |
+| 4 | no `heartbeat_at` (0.1.x entry) | **refuse** (exit 4) | liveness unknown; stay conservative |
+| 5 | lease fresh | **refuse** (exit 4) | a live session holds this name |
+
+`--force` overrides 4 and 5 (never 1–3, which don't refuse) and always prints what it displaced. It exists because the docs have always said "ASK THE USER to confirm before reclaiming" while giving the user no way to say yes; the alternative was agents deleting registry files by hand.
+
+**`host_cwd` is the lineage key.** Hostname equality is not evidence of ownership — every native session on a Mac shares one — so rule 2 additionally requires the host directory to match. That's the same invariant the cwd-memo auto-rebind has always relied on ("the next session in this directory is the successor of the last one"), so it adds no new way to be wrong. An **unknown** `host_cwd` on either side (empty string) is never read as either answer: rule 2 doesn't fire and the lease rules decide.
+
+Before 0.2.0's fix, rules 1–5 were a single `container != SELF_HOST` test, so on a Mac any native session could `register` a name a live session already held: the entry was silently rewritten with the new sid and instance, the displaced session's watcher released its lease on the instance change, and both `whoami`s still answered with the name. That is the exact configuration this release exists to prevent.
+
+**Residual limit:** two native sessions in the *same* host directory remain indistinguishable to rule 2, so the second still takes the name (with the informational refresh line). That is outside the plugin's one-agent-per-host-directory contract — the same assumption the cwd-memo makes — and is not fixable without a per-session identity that survives `/resume`.
+
+The identity resolution in [Identity](#identity) uses the same discriminator: a unique hostname match is only accepted when its `host_cwd` doesn't contradict ours, so a bystander session in another directory no longer answers `whoami` as the registered agent.
 
 ## Watcher singleton
 
@@ -203,6 +227,7 @@ The fragment script reads CC's session JSON from stdin (and falls back to `$CLAU
 | After `/resume`, monitor not running / no incoming events | `--plugin-dir` is per-launch — must be passed again on `claude --resume <id> --plugin-dir <path>`. Marketplace installs don't need the flag. |
 | Old stale `*.json` in `registry/` | A session was force-killed without firing `SessionEnd`. Its lease expires after 300s, after which the next `/agent register <NAME>` reclaims the name automatically (with a notice). Entries written by 0.1.x have no lease and still require user-confirmed reclaim. |
 | An agent lost its name to a "RECLAIMED" notice while alive | Its watcher wasn't running (or was killed), so the lease expired. Restart the watcher via `Monitor`, then re-register. |
+| `register` refuses: "already held by a different directory on THIS host" | Another session on this machine holds the name and is alive. Ask the user. If that session is really dead its lease expires within 300s and the name is reclaimed automatically; otherwise have it run `/agent unregister`, or — with the user's explicit yes — `agent-bus register --force <NAME>`. |
 
 ## Known limits
 

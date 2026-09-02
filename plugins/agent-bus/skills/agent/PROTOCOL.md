@@ -45,7 +45,7 @@ The watcher pre-filters: notifications addressed to other agents should never re
 ## Bus state directory
 
 For reference (almost never needed):
-- `~/.claude/bus/registry/<NAME>.json` — live registrations (keyed on `session_id`, with a watcher heartbeat lease)
+- `~/.claude/bus/registry/<NAME>.json` — live registrations (keyed on `session_id` + host directory, with a watcher heartbeat lease). Never edit or delete these by hand: `agent-bus register` reclaims a dead holder on its own, and `agent-bus register --force <NAME>` is the user-confirmed way to displace a live one.
 - `~/.claude/bus/inbox/<TO>--<TS>--<FROM>--<RAND>.json` — pending messages
 - `~/.claude/bus/cwd-memo/<sha>.json` — per-host-directory remembered name (survives /resume)
 - `~/.claude/bus/session-cwd/<session_id>.json` — this session's host_cwd, captured at session start

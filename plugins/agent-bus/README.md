@@ -54,13 +54,14 @@ src/server/auth/middleware.ts
 - **Native file watcher.** Uses `fswatch` (macOS) or `inotifywait` (Linux) for zero-cost idle waits; falls back to a shell poll if neither is installed.
 - **Send-time visibility.** `/agent send X` warns immediately if no session is registered as `X` — or if one is registered but its watcher stopped heartbeating, i.e. that session is dead and won't read you.
 - **Survives compaction.** Compaction erases Claude's memory of its own watcher, not the watcher itself — so the `SessionStart` hook re-injects the live state (registered name, lease, watcher pid) after every compaction, and `/agent status` re-derives it on demand. No more accidental re-registers or duplicate watchers.
-- **Self-healing registrations.** Each registration holds a 5-minute watcher lease. A session that is force-killed frees its name automatically; a live one can never be reclaimed out from under it.
+- **Self-healing registrations.** Each registration holds a 5-minute watcher lease. A session that is force-killed frees its name automatically, and a *live* registration is never taken silently — claiming a held name is refused unless it's your own session, your own directory (the `/resume` case), or the holder's lease has expired. `/agent register --force <NAME>` is the confirmed override, and it always prints what it displaced.
 
 ## Commands
 
 | Command | Effect |
 |---|---|
 | `/agent register <NAME>` | Claim a name in this session. Surfaces any pending messages addressed to it. |
+| `/agent register --force <NAME>` | Take a name held by a live registration. Only with the user's say-so; always prints what it displaced. |
 | `/agent unregister` | Release the name and clear its cwd-memo. |
 | `/agent whoami` | Show this session's current registered name. |
 | `/agent status` | Registration + watcher liveness + pending messages + what to do next. |

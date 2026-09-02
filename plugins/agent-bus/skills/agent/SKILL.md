@@ -12,6 +12,7 @@ A thin wrapper over the `agent-bus` command (a launcher the plugin puts on the B
 | User says | Run this exact command |
 |---|---|
 | `register [me as] <NAME>` or `/agent register <NAME>` | `agent-bus register <NAME>` **then** start the inbox watcher (see below) |
+| user has confirmed taking a name off a live session | `agent-bus register --force <NAME>` (never without that confirmation) |
 | `unregister` or `/agent unregister` | `agent-bus unregister` |
 | `whoami`, `who am I` or `/agent whoami` | `agent-bus whoami` |
 | `status`, "am I still registered/listening", or after a compaction | `agent-bus status` |
@@ -51,7 +52,7 @@ It prints your registration (or "ambiguous"/"unregistered"), the watcher pid and
 
 ## Three rules that override everything else
 
-1. **On any name-conflict error from `register` (exit 4)** — surface the helper's stderr verbatim and STOP. Never delete `~/.claude/bus/registry/<NAME>.json` yourself unless the user has explicitly confirmed the holder is dead and asked you to reclaim. (A holder whose watcher lease has expired is reclaimed automatically by `register` itself, with a `⚠ RECLAIMED` notice — surface that notice too.)
+1. **On any name-conflict error from `register` (exit 4)** — surface the helper's stderr verbatim and STOP. A holder whose watcher lease has expired is reclaimed automatically (`⚠ RECLAIMED` notice — surface that too), so an exit 4 means the holder is either alive or of unknown liveness. Do **not** work around it: never delete `~/.claude/bus/registry/<NAME>.json` by hand. If the user explicitly confirms the holder should be displaced, run `agent-bus register --force <NAME>`, which prints what it displaced.
 2. **Never trust conversation memory for "what's my registered name"** — always re-run `agent-bus whoami` before sending or replying as a named agent. If it answers `(ambiguous — …)`, do not pick one of the candidates: tell the user and offer to `register` this session explicitly.
 3. **Never delegate this skill to a sub-agent (Task tool).** The operations are direct one-line commands.
 

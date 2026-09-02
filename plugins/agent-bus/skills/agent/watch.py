@@ -132,8 +132,10 @@ def my_entry():
 
     1. session_id match — exact, and the only thing that separates two native
        sessions on one Mac (they share a hostname);
-    2. else a *unique* hostname match — kept because a watcher spawned before a
-       /resume carries a stale session_id in its env;
+    2. else a *unique* hostname match whose host_cwd doesn't contradict ours —
+       kept because a watcher spawned before a /resume carries a stale
+       session_id in its env, and resolves the same directory through that old
+       sid's session-cwd record;
     3. else None. Two same-hostname candidates used to make this watcher answer
        (and emit) as whichever entry the glob happened to return first."""
     sid = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
@@ -146,7 +148,13 @@ def my_entry():
     if not host:
         return None
     mine = [d for d in entries if d.get("container") == host]
-    return mine[0] if len(mine) == 1 else None
+    if len(mine) != 1:
+        return None
+    # host_cwd decides only when both sides know it; unknown keeps prior behavior.
+    theirs, ours = mine[0].get("host_cwd") or "", resolve_host_cwd()
+    if theirs and ours and theirs != ours:
+        return None
+    return mine[0]
 
 
 def my_name():

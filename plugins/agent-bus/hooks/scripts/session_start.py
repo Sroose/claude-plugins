@@ -47,9 +47,12 @@ def registry_entries():
     return out
 
 
-def resolve_entry(sid, host):
-    """(entry_or_None, ambiguous_candidates) — session_id match first, then a
-    *unique* hostname match (every native session on a Mac shares a hostname)."""
+def resolve_entry(sid, host, my_host_cwd):
+    """(entry_or_None, unresolved_candidates) — session_id match first, then a
+    *unique* hostname match whose host_cwd doesn't contradict ours. Hostname
+    alone is not an identity (every native session on a Mac shares one), so
+    without the directory check a bystander session would be told it is
+    registered as its neighbour's agent."""
     entries = registry_entries()
     if sid:
         for d in entries:
@@ -57,8 +60,16 @@ def resolve_entry(sid, host):
                 return d, []
     mine = [d for d in entries if d.get("container") == host] if host else []
     if len(mine) == 1:
+        theirs = mine[0].get("host_cwd") or ""
+        if theirs and my_host_cwd and theirs != my_host_cwd:
+            return None, mine
         return mine[0], []
     return None, mine
+
+
+def lease_is_stale(d):
+    hb = d.get("heartbeat_at")
+    return isinstance(hb, (int, float)) and (time.time() - hb) > LEASE_TTL
 
 
 def lease_label(d):
@@ -222,13 +233,19 @@ if host_cwd:
 # Silent when this session has no registration at all: nothing to preserve, and
 # the guidance above already covers how to register.
 try:
-    _entry, _ambiguous = resolve_entry(sid, socket.gethostname())
+    _entry, _ambiguous = resolve_entry(sid, socket.gethostname(), host_cwd)
     _pid, _alive = watcher_state(socket.gethostname())
     if _entry:
         _watcher = (f"A watcher pidfile for this host names pid {_pid} ({'ALIVE' if _alive else 'DEAD'})."
                     if _pid is not None else
                     "There is no watcher pidfile for this host, so no watcher is running.")
-        if _alive:
+        if _alive and lease_is_stale(_entry):
+            # A live watcher that isn't refreshing THIS lease is bound to a
+            # different registration — same verdict `agent-bus status` gives.
+            _action = ("That watcher is alive but is NOT refreshing this registration's lease, so "
+                       "it is serving a different one: re-run `agent-bus register <NAME>` to take "
+                       "the lease back. Do not start a second watcher.")
+        elif _alive:
             _action = ("Do NOT re-register and do NOT start a second watcher: a duplicate persistent "
                        "Monitor plus the pidfile takeover would fight each other, and the survivor "
                        "would be the wrong one.")

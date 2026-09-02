@@ -155,17 +155,33 @@ def registry_entries():
     return out
 
 
+def same_host_dir(d: dict, my_host_cwd: str):
+    """Does entry `d` belong to the same host directory as this session?
+
+    True/False only when BOTH sides know their host_cwd; None = unknown, and
+    unknown must never be read as either answer. host_cwd is what tells a
+    legitimate /resume (new session_id, same directory) apart from an unrelated
+    session that merely shares a hostname — the same lineage the cwd-memo
+    auto-rebind has always relied on."""
+    theirs = d.get("host_cwd") or ""
+    if not theirs or not my_host_cwd:
+        return None
+    return theirs == my_host_cwd
+
+
 def my_entry():
-    """Resolve this session's registration → (entry_or_None, ambiguous_list).
+    """Resolve this session's registration → (entry_or_None, unresolved_list).
 
     1. the entry whose `session_id` is ours — exact, and the only thing that
        distinguishes two native sessions on one Mac (they share a hostname);
-    2. else the *only* entry for this hostname — kept as a fallback because a
-       watcher spawned before a /resume carries a stale session_id in its env,
-       and 0.1.x entries may have none at all;
+    2. else the *only* entry for this hostname, provided its host_cwd doesn't
+       contradict ours — kept as a fallback because a watcher spawned before a
+       /resume carries a stale session_id in its env (it resolves the same
+       directory through that old sid's session-cwd record), and 0.1.x entries
+       may carry no session_id at all;
     3. else None plus the same-hostname candidates, so the caller can say
-       "ambiguous, re-register" instead of picking one at random (which is how
-       a bystander session used to answer as somebody else's agent).
+       "unresolved, re-register" instead of picking one at random — which is how
+       a bystander session used to answer as somebody else's agent.
     """
     entries = registry_entries()
     if SELF_ID:
@@ -176,6 +192,10 @@ def my_entry():
         return None, []
     mine = [d for d in entries if d.get("container") == SELF_HOST]
     if len(mine) == 1:
+        # A unique hostname match is only ours if the host directory agrees (or
+        # one of the two is unknown, in which case behave as before).
+        if same_host_dir(mine[0], resolve_host_cwd()) is False:
+            return None, mine
         return mine[0], []
     return None, mine
 
@@ -191,11 +211,11 @@ def cmd_whoami(args):
         print(d.get("name", "(unnamed entry)"))
         return 0
     if ambiguous:
-        # Several registrations share this hostname and none of them carries our
-        # session_id — typical for native sessions on a Mac, where hostname is
-        # not an identity. Guessing would answer as the wrong agent.
-        print(f"(ambiguous — {len(ambiguous)} registrations share hostname '{SELF_HOST}' "
-              f"and none matches this session_id)")
+        # Registrations exist on this hostname but none of them is demonstrably
+        # ours (no session_id match, and either several candidates or one whose
+        # host directory is somebody else's). Guessing answers as another agent.
+        print(f"(unresolved — {len(ambiguous)} registration(s) on hostname '{SELF_HOST}', "
+              f"none matching this session's id or host directory)")
         for c in ambiguous:
             print(f"  {c.get('name', '?'):16}  sid={(c.get('session_id') or '?')[:8]}…  "
                   f"{lease_label(c)}  host_cwd={c.get('host_cwd', '?')}")
@@ -203,6 +223,37 @@ def cmd_whoami(args):
         return 0
     print("(unregistered)")
     return 0
+
+
+def claim_decision(d: dict, my_host_cwd: str):
+    """May this session take over the existing registration `d`?
+
+    The single authority on that question — cmd_register does nothing but act on
+    the answer. Returns (action, reason) where action is one of:
+
+      refresh        it is literally this session (session_id match)
+      refresh-resume same host directory on this host: a /resume with a
+                     renumbered session_id, or a pre-resume watcher's entry
+      reclaim        the holder's watcher lease expired — it is dead
+      refuse-legacy  0.1.x entry, no lease, liveness unknown → stay conservative
+      refuse-fresh   a live session holds this name
+
+    Ordering matters: hostname equality alone is NOT evidence of ownership (every
+    native session on a Mac shares one), which is why host_cwd has to agree
+    before rule 2 fires. An unknown host_cwd on either side falls through to the
+    lease rules rather than guessing.
+    """
+    sid = d.get("session_id") or ""
+    if sid and SELF_ID and sid == SELF_ID:
+        return "refresh", "same session_id"
+    if d.get("container") == SELF_HOST and same_host_dir(d, my_host_cwd) is True:
+        return "refresh-resume", f"same host directory ({my_host_cwd})"
+    age = lease_age(d)
+    if age is None:
+        return "refuse-legacy", "entry predates heartbeat leases (0.1.x); liveness unknown"
+    if age > LEASE_TTL:
+        return "reclaim", f"lease expired {age - LEASE_TTL}s ago (last heartbeat {age}s ago)"
+    return "refuse-fresh", f"lease fresh, last heartbeat {age}s ago"
 
 
 def cmd_status(args):
@@ -223,8 +274,8 @@ def cmd_status(args):
               f"instance={(d.get('instance') or '(legacy)')[:8]}  {lease_label(d)}")
         print(f"              host_cwd={d.get('host_cwd', '?')}  started={d.get('started_at', '?')}")
     elif ambiguous:
-        print(f"registration: (ambiguous — {len(ambiguous)} registrations share hostname "
-              f"'{SELF_HOST}' and none matches this session_id)")
+        print(f"registration: (unresolved — {len(ambiguous)} registration(s) on hostname "
+              f"'{SELF_HOST}', none matching this session's id or host directory)")
         for c in ambiguous:
             print(f"                {c.get('name', '?'):16}  sid={(c.get('session_id') or '?')[:8]}…  "
                   f"{lease_label(c)}  host_cwd={c.get('host_cwd', '?')}")
@@ -273,8 +324,12 @@ def cmd_status(args):
 
 
 def cmd_register(args):
+    # --force is the *user-confirmed* reclaim the docs have always demanded
+    # ("ASK THE USER to confirm before reclaiming") without ever providing.
+    force = "--force" in args
+    args = [a for a in args if a != "--force"]
     if len(args) != 1:
-        print("usage: bus.py register <NAME>", file=sys.stderr); return 2
+        print("usage: bus.py register [--force] <NAME>", file=sys.stderr); return 2
     name = args[0].upper()  # accept any case; normalize to uppercase
     if not NAME_RE.match(name):
         print(f"ERROR: name must match {NAME_RE.pattern} (letters, digits, _ and -; max 32 chars; must start with a letter)", file=sys.stderr); return 2
@@ -283,59 +338,81 @@ def cmd_register(args):
 
     init_dirs()
     entry = BUS_ROOT / "registry" / f"{name}.json"
-    reclaim_notice = []  # printed only once the registration actually goes through
+    host_cwd = resolve_host_cwd()
+    notice = []  # printed only once the registration actually goes through
 
     if entry.exists():
         try:
             d = json.loads(entry.read_text())
         except Exception:
             d = {}
-        if d.get("container") != SELF_HOST:
-            age = lease_age(d)
-            if age is not None and age > LEASE_TTL:
-                # The holder's watcher stopped refreshing its lease long ago:
-                # that session is gone (force-kill, OOM, container removed) and
-                # left a file behind. Reclaim without asking — but say so
-                # loudly, because the name is changing hands.
-                reclaim_notice = [
-                    f"⚠  RECLAIMED '{name}' from a dead registration (watcher lease expired):",
-                    f"     previous container: {d.get('container', '?')}",
-                    f"     previous host_cwd:  {d.get('host_cwd', '?')}",
-                    f"     registered at:      {d.get('started_at', '?')}",
-                    f"     lease expired {age - LEASE_TTL}s ago "
-                    f"(last heartbeat {age}s ago, TTL {LEASE_TTL}s)",
-                    "",
-                ]
+        action, reason = claim_decision(d, host_cwd)
+        if action == "refresh":
+            pass  # literally us; fall through and refresh the entry
+        elif action == "refresh-resume":
+            # Same host directory: a /resume renumbered our session_id, or this
+            # is the entry a pre-resume watcher is still serving. Say so — the
+            # sid changing under a registration is worth one line.
+            notice = [f"↻  refreshed '{name}' for this host directory ({host_cwd}): "
+                      f"session_id {(d.get('session_id') or '(none)')[:8]}… → {(SELF_ID or '(none)')[:8]}…"]
+        elif action == "reclaim":
+            # The holder's watcher stopped refreshing its lease: that session is
+            # gone (force-kill, OOM, container removed) and left a file behind.
+            # Reclaim without asking — but loudly, the name is changing hands.
+            notice = [
+                f"⚠  RECLAIMED '{name}' from a dead registration (watcher lease expired):",
+                f"     previous container: {d.get('container', '?')}",
+                f"     previous host_cwd:  {d.get('host_cwd', '?')}",
+                f"     registered at:      {d.get('started_at', '?')}",
+                f"     {reason} (TTL {LEASE_TTL}s)",
+                "",
+            ]
+        elif force:
+            # Overriding a refusal. Never silent: print exactly what was displaced.
+            notice = [
+                f"⚠  FORCED takeover of '{name}' — the previous registration was NOT dead:",
+                f"     previous container: {d.get('container', '?')}",
+                f"     previous host_cwd:  {d.get('host_cwd', '?')}",
+                f"     registered at:      {d.get('started_at', '?')}",
+                f"     {reason}",
+                f"     That session (if alive) will stop receiving messages addressed to "
+                f"'{name}' and its watcher will drop this lease.",
+                "",
+            ]
+        else:
+            where = ("another host" if d.get("container") != SELF_HOST
+                     else "a different directory on THIS host")
+            print(f"ERROR: name '{name}' is already held by {where}:", file=sys.stderr)
+            print(f"  container:  {d.get('container', '?')}", file=sys.stderr)
+            print(f"  host_cwd:   {d.get('host_cwd', '?')}", file=sys.stderr)
+            print(f"  started:    {d.get('started_at', '?')}", file=sys.stderr)
+            if action == "refuse-legacy":
+                print(f"  lease:      none — {reason}", file=sys.stderr)
             else:
-                print(f"ERROR: name '{name}' is already held by another container:", file=sys.stderr)
-                print(f"  container:  {d.get('container', '?')}", file=sys.stderr)
-                print(f"  host_cwd:   {d.get('host_cwd', '?')}", file=sys.stderr)
-                print(f"  started:    {d.get('started_at', '?')}", file=sys.stderr)
-                if age is None:
-                    print(f"  lease:      none — entry predates heartbeat leases (0.1.x), liveness unknown", file=sys.stderr)
-                else:
-                    print(f"  lease:      fresh, last heartbeat {age}s ago — that watcher is alive", file=sys.stderr)
-                print(f"  ", file=sys.stderr)
-                print(f"  DO NOT auto-recover. If the holding container is dead, ASK THE USER to confirm before reclaiming.", file=sys.stderr)
-                return 4
-        # same container, fine — refresh below
+                print(f"  lease:      {reason} — that watcher is alive", file=sys.stderr)
+            print(f"  ", file=sys.stderr)
+            print(f"  DO NOT auto-recover. ASK THE USER. If that session is genuinely dead its "
+                  f"lease expires within {LEASE_TTL}s and the name is then reclaimed "
+                  f"automatically; or have that session run `/agent unregister`. With the "
+                  f"user's explicit confirmation: `agent-bus register --force {name}`.",
+                  file=sys.stderr)
+            return 4
 
     existing_entry, _ = my_entry()
     existing = existing_entry.get("name") if existing_entry else None
     if existing and existing != name:
         print(f"ERROR: this session is already registered as '{existing}'. Run /agent unregister first.", file=sys.stderr)
         if existing_entry.get("session_id") != SELF_ID:
-            # Resolved via the hostname fallback, which is not proof of ownership
-            # on a host where every native session shares one hostname.
-            print(f"  NOTE: matched on hostname '{SELF_HOST}', not on this session's id. If "
-                  f"'{existing}' belongs to a DIFFERENT session on this machine, do not "
-                  f"unregister it — ask the user.", file=sys.stderr)
+            # Resolved via the hostname fallback (host directory agreed, or one
+            # side didn't know it), which is weaker than a session_id match.
+            print(f"  NOTE: matched on hostname '{SELF_HOST}' + host directory, not on this "
+                  f"session's id. If '{existing}' belongs to a DIFFERENT session on this "
+                  f"machine, do not unregister it — ask the user.", file=sys.stderr)
         return 5
 
-    for line in reclaim_notice:
+    for line in notice:
         print(line)
 
-    host_cwd = resolve_host_cwd()
     data = {
         "name": name,
         "container": SELF_HOST,
