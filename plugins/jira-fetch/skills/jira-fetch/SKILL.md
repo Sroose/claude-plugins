@@ -1,6 +1,6 @@
 ---
 name: jira-fetch
-description: Use this skill when the user wants to pull a Jira Cloud issue into a local Markdown file for reference, or to set/refresh their Jira session cookie. Trigger on requests like "fetch HN-25476", "grab that Jira ticket", "pull the issue at <atlassian browse URL>", "what's in HN-12345", or "set jira cookie '<value>'".
+description: Use this skill when the user wants to read a Jira Cloud issue or pull it into a local Markdown file for reference, or to set/refresh their Jira session cookie. Trigger on requests like "fetch PROJ-123", "grab that Jira ticket", "pull the issue at <atlassian browse URL>", "what's in PROJ-456", or "set jira cookie '<value>'".
 ---
 
 # jira-fetch
@@ -9,7 +9,7 @@ Fetch Jira Cloud issues into local Markdown so you can read a ticket (summary, m
 
 ## Hard rule: Jira access is READ-ONLY
 
-Never write to Jira — not via the bundled script, not via direct `curl`, not via any API call (`POST`/`PUT`/`DELETE` on `/rest/api/...`), not via any MCP server. If a request seems to want a write-back ("transition this to Done", "add a comment", "assign it to me"), refuse and say this skill is read-only. If they insist, escalate by asking explicitly — don't quietly add a write path.
+Never write to Jira — not via the bundled script, not via direct `curl`, not via any API call (`POST`/`PUT`/`DELETE` on `/rest/api/...`), not via any write tool of an MCP server such as the Atlassian connector. If a request seems to want a write-back ("transition this to Done", "add a comment", "assign it to me"), refuse and say this skill is read-only. If they insist, escalate by asking explicitly — don't quietly add a write path.
 
 ## What it produces
 
@@ -34,7 +34,22 @@ JFETCH=$(find ~/.claude/plugins/cache -path '*jira-fetch*/jira_fetch.py' 2>/dev/
 
 > If `$JFETCH` comes back empty (e.g. testing via `--plugin-dir`), invoke the script by its explicit plugin path instead.
 
-## Fetching an issue
+## Choosing a path: connector first, cookie second
+
+1. **Atlassian connector (preferred).** If an Atlassian MCP `getJiraIssue` tool is in your tool list, or is listed as a deferred tool (load it with ToolSearch `select:<exact tool name>`), use "Reading via the connector" below. No cookie needed.
+2. **Session cookie (fallback).** Use "Fetching via the cookie" when no such tool exists, when its call fails because the connector is not connected or not authorised, or when the user wants a faithful Markdown file (see the caveat below). When you fall back, tell the user once that enabling the connector (claude.ai Settings → Connectors → Atlassian, then `/mcp` to confirm) removes the weekly cookie refresh.
+
+Read-only still applies on the connector: call only its read tools (`getJiraIssue`, and a comment-listing read tool if the issue has more comments than `getJiraIssue` embeds). The connector also exposes write tools; never call them from this skill.
+
+## Reading via the connector
+
+Call `getJiraIssue` for the key and answer the user's question straight from the result. Don't write a file unless the user asks for one: the issue is already in your context, and copying it out costs tokens and risks transcription slips.
+
+If the user does want a file, write it yourself in the same layout as `fetch` (see "What it produces"), copying the description and comments verbatim. Check the embedded comment count against the issue's comment total and fetch the rest if it is short.
+
+> **Caveat:** the connector's output drops some formatting, such as user mentions and links. Fine for reading a ticket; when the user needs those intact, use the cookie path.
+
+## Fetching via the cookie
 
 Accepts a browse URL or a bare key:
 
@@ -42,10 +57,10 @@ Accepts a browse URL or a bare key:
 JFETCH=$(find ~/.claude/plugins/cache -path '*jira-fetch*/jira_fetch.py' 2>/dev/null | sort -V | tail -1)
 
 # From a browse URL (preferred — carries the tenant):
-python3 "$JFETCH" fetch 'https://your-tenant.atlassian.net/browse/HN-25476' -o HN-25476.md
+python3 "$JFETCH" fetch 'https://your-tenant.atlassian.net/browse/PROJ-123' -o PROJ-123.md
 
 # From a bare key — needs the tenant base URL:
-python3 "$JFETCH" fetch HN-25476 --base https://your-tenant.atlassian.net -o HN-25476.md
+python3 "$JFETCH" fetch PROJ-123 --base https://your-tenant.atlassian.net -o PROJ-123.md
 # (or set JIRA_BASE_URL in the environment instead of --base)
 ```
 
@@ -77,8 +92,8 @@ python3 "$JFETCH" set-token '<value>'
 If a `fetch` call prints `ERR_AUTH_INVALID` or `ERR_AUTH_MISSING` on stderr:
 
 1. Stop immediately. Do not retry the call.
-2. Tell the user the Jira session expired (or was never set) and they need to paste a fresh cookie via `set jira cookie '<value>'`. Remind them it's a different cookie than Confluence.
-3. Wait. Do not attempt any further `fetch` until the user has set a new token.
+2. Tell the user the Jira session expired (or was never set) and they need to paste a fresh cookie via `set jira cookie '<value>'`. Remind them it's a different cookie than Confluence, and that enabling the Atlassian connector avoids the cookie altogether.
+3. Wait. Do not attempt any further `fetch` until the user has set a new token or enabled the connector.
 
 ## House rules
 

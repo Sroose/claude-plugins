@@ -22,7 +22,7 @@
     },
     {
       "name": "jira-fetch",
-      "description": "Read-only fetch of Jira Cloud issues to Markdown. Downloads an issue (key, metadata, description, comments) as a Markdown file for reference while you work. Sibling of confluence-sync: same session-cookie auth and HTML->Markdown pipeline, one-way, never writes to Jira.",
+      "description": "Read-only fetch of Jira Cloud issues to Markdown. Downloads an issue (key, metadata, description, comments) as a Markdown file for reference while you work. Uses the Atlassian connector when available, else the same session-cookie auth and HTML->Markdown pipeline as confluence-sync. One-way, never writes to Jira.",
       "source": "./plugins/jira-fetch"
     },
     {

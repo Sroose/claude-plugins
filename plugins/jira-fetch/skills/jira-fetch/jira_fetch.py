@@ -5,8 +5,8 @@ Subcommands:
   set-token <value>           Store the browser session cookie at ~/.claude/secrets/jira-session
   fetch <url|key> -o <path>   Download a Jira issue and write Markdown to <path>
 
-`fetch` accepts either a browse URL (https://<tenant>.atlassian.net/browse/HN-123)
-or a bare issue key (HN-123). A bare key requires --base (or the JIRA_BASE_URL env var)
+`fetch` accepts either a browse URL (https://<tenant>.atlassian.net/browse/PROJ-123)
+or a bare issue key (PROJ-123). A bare key requires --base (or the JIRA_BASE_URL env var)
 to know which tenant to hit.
 
 On HTTP 401, fetch deletes the stored token and exits with ERR_AUTH_INVALID on stderr.
@@ -55,9 +55,17 @@ EXIT_AUTH = 2
 FIELDS = "summary,status,issuetype,priority,assignee,reporter,labels,created,updated,resolution,parent,description,comment"
 
 
+MCP_TIP = (
+    "Tip: with the Atlassian connector enabled (claude.ai Settings -> Connectors -> Atlassian,\n"
+    "     then /mcp in Claude Code to check it is connected), Claude reads issues through it\n"
+    "     and no cookie is needed."
+)
+
+
 def read_token() -> str:
     if not TOKEN_PATH.exists():
         print(ERR_AUTH_MISSING, file=sys.stderr)
+        print(MCP_TIP, file=sys.stderr)
         sys.exit(EXIT_AUTH)
     return TOKEN_PATH.read_text().strip()
 
@@ -91,7 +99,7 @@ def clear_token() -> None:
 
 def resolve_issue(ref: str, base_override: str | None) -> tuple[str, str]:
     """Return (base_url, issue_key) from a browse URL or a bare key."""
-    # Browse URL: https://<tenant>.atlassian.net/browse/HN-25476
+    # Browse URL: https://<tenant>.atlassian.net/browse/PROJ-123
     m = re.match(r"(https://[^/]+)/browse/([A-Z][A-Z0-9_]+-\d+)", ref)
     if m:
         return m.group(1), m.group(2)
@@ -102,7 +110,7 @@ def resolve_issue(ref: str, base_override: str | None) -> tuple[str, str]:
     if m_base and m_key:
         return m_base.group(1), m_key.group(1)
 
-    # Bare key: HN-25476 — needs a base URL from --base or env
+    # Bare key: PROJ-123 — needs a base URL from --base or env
     if re.fullmatch(r"[A-Z][A-Z0-9_]+-\d+", ref):
         if not base_override:
             print(
@@ -275,7 +283,7 @@ def main() -> None:
     p_set.set_defaults(func=cmd_set_token)
 
     p_fetch = sub.add_parser("fetch", help="Download a Jira issue as Markdown")
-    p_fetch.add_argument("url", help="Jira browse URL or bare issue key (e.g. HN-25476)")
+    p_fetch.add_argument("url", help="Jira browse URL or bare issue key (e.g. PROJ-123)")
     p_fetch.add_argument("-o", "--output", required=True, help="Output .md path")
     p_fetch.add_argument("--base", help="Tenant base URL (needed only for a bare key); or set JIRA_BASE_URL")
     p_fetch.set_defaults(func=cmd_fetch)
