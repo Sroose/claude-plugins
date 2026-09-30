@@ -74,6 +74,16 @@ pip install markdownify    # one-time, required dependency
 
 → [plugins/whisper-transcribe/README.md](plugins/whisper-transcribe/README.md) for usage, [server-setup/README.md](plugins/whisper-transcribe/server-setup/README.md) for running the whisper-server.
 
+### [wispr-notes](plugins/wispr-notes/) — Wispr Flow meeting notes, read locally
+
+> Give Claude read-only access to your Wispr Flow notetaker data (meetings, AI summaries, your own notes, speaker-resolved transcripts, search) straight from the app's local storage on macOS. No network, no Wispr API or MCP. The skill reads transcripts whenever details matter, since Wispr's summaries lack your project context.
+
+```
+/plugin install wispr-notes@sroose-plugins
+```
+
+→ [plugins/wispr-notes/README.md](plugins/wispr-notes/README.md) for usage, [SKILL.md](plugins/wispr-notes/skills/wispr-notes/SKILL.md) for how Claude uses it.
+
 ## Marketplace-level changes
 
 See [CHANGELOG.md](CHANGELOG.md) for plugin additions, removals, and renames at the marketplace level. Each plugin tracks its own version history in `plugins/<name>/CHANGELOG.md`.

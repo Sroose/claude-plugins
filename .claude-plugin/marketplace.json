@@ -29,6 +29,11 @@
       "name": "whisper-transcribe",
       "description": "Transcribe meeting/audio recordings via a whisper.cpp server (local, LAN, or tailnet) and write a concise, context-aware summary. Context can be files or an inline --context-text \"...\" string. Asks for the server URL on first use - no hardcoded host. Ships /transcribe <recording> [--prompt \"vocab\"] [--lang xx] [--context-text \"...\"] [context.md ...].",
       "source": "./plugins/whisper-transcribe"
+    },
+    {
+      "name": "wispr-notes",
+      "description": "Read-only access to your Wispr Flow notetaker data stored locally on macOS: meetings, AI summaries, your own notes, speaker-resolved transcripts and full-text search. No network or Wispr API. Ships a `wispr-notes` PATH launcher, allowlistable as Bash(wispr-notes:*).",
+      "source": "./plugins/wispr-notes"
     }
   ]
 }

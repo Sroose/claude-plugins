@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# wispr-notes launcher.
+#
+# Lives in the plugin's bin/ dir, which Claude Code adds to the Bash tool's PATH
+# while the plugin is enabled, so every call is a clean, allowlistable command:
+#
+#     wispr-notes list --since 7d
+#     wispr-notes transcript 1a2b3c4d --grep budget
+#
+# Allowlist this as: Bash(wispr-notes:*)
+
+set -uo pipefail
+
+HERE=$(cd "$(dirname "$0")" 2>/dev/null && pwd)
+SCRIPT="$HERE/../skills/wispr-notes/wispr.py"
+
+# Fallback: if the sibling layout isn't found (e.g. launcher reached via an
+# unusual symlink), locate the newest installed copy in the plugin cache.
+if [ ! -f "$SCRIPT" ]; then
+  SCRIPT=$(find "$HOME/.claude/plugins/cache" -path '*wispr-notes*/skills/wispr-notes/wispr.py' 2>/dev/null | sort -V | tail -1)
+fi
+if [ -z "$SCRIPT" ] || [ ! -f "$SCRIPT" ]; then
+  echo "wispr-notes: wispr.py not found next to the launcher or in the plugin cache" >&2
+  exit 1
+fi
+
+exec python3 "$SCRIPT" "$@"

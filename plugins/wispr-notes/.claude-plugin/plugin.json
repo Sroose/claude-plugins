@@ -1,0 +1,13 @@
+{
+  "name": "wispr-notes",
+  "version": "0.1.0",
+  "description": "Read-only access to your Wispr Flow notetaker data stored locally on macOS: meeting list, AI summaries, your own notes, speaker-resolved transcripts, standalone notes and full-text search. No network, no Wispr API; reads the app's local SQLite database and transcript files.",
+  "author": {
+    "name": "Sroose"
+  },
+  "homepage": "https://github.com/Sroose/claude-plugins",
+  "repository": "https://github.com/Sroose/claude-plugins",
+  "license": "MIT",
+  "keywords": ["wispr", "wispr-flow", "meetings", "notes", "transcripts"],
+  "category": "productivity"
+}

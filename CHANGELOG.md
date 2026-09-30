@@ -2,6 +2,10 @@
 
 This file tracks marketplace-level changes: plugins added, removed, renamed, or marketplace-wide reshuffles. Per-plugin version history lives in `plugins/<name>/CHANGELOG.md`.
 
+## 2026-09-30
+
+- Added [wispr-notes](plugins/wispr-notes/) (initial release at 0.1.0): read-only access to Wispr Flow notetaker data from the app's local storage on macOS (meetings, summaries, notes, speaker-resolved transcripts, search). No network or Wispr API. Ships a `wispr-notes` PATH launcher, allowlistable as `Bash(wispr-notes:*)`. See plugin CHANGELOG.
+
 ## 2026-06-27
 
 - Added [whisper-transcribe](plugins/whisper-transcribe/) (initial release at 0.1.0): transcribe audio/meeting recordings via a whisper.cpp `whisper-server` (local, LAN, or tailnet) and write a concise summary (action points + decisions) next to the recording, optionally sharpened with caller-supplied context files or an inline `--context-text "..."` string. Server URL is asked once on first use — nothing hardcoded. Ships a `server-setup/` folder with run instructions and a macOS LaunchAgent template. See plugin CHANGELOG.
