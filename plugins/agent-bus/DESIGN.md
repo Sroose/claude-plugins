@@ -60,6 +60,8 @@ Up to 0.1.5 identity was keyed on hostname alone. That works for containers (eac
 
 Hostname survives as a *fallback* because `session_id` changes when you `/resume` within a single process, and subprocesses spawned before the resume keep the stale value in env — including the watcher. The fallback is only trusted when it is unambiguous.
 
+The display labels — `sessionTitle` from `UserPromptSubmit` and `statusline_fragment.py` — use **rule 1 only**. They always receive the current `session_id` from CC, so the stale-env reason for rule 2 doesn't apply to them, and a hostname match could only label this session with another session's name. Cost: after a `/resume` the entry keeps the pre-resume `session_id` (auto-rebind sees a same-hostname entry and leaves it alone), so the label stays blank until `agent-bus register <NAME>` refreshes it via claim rule 2.
+
 ## Heartbeat leases
 
 A registry file is not proof that anyone is listening: a force-killed session leaves its entry behind indefinitely (stale entries months old have been observed in the wild), which made the send-time "no session registered as X" warning *falsely reassuring* — its absence meant nothing, and senders blind-retried into a dead name.
@@ -181,7 +183,7 @@ The watcher is started by the **`Monitor` tool** — never as a background Bash 
 | Hook | Purpose |
 |---|---|
 | `SessionStart` | Inject protocol guidance into Claude's context, plus the `[agent-bus live state]` block (fires on `source=compact` too — see [Compaction](#compaction)). Record `session-cwd/<session_id>.json`. If a cwd-memo exists for the current host_cwd and the name is free, auto-rebind (write the registry entry, with lease fields) and tell Claude to start the watcher. |
-| `UserPromptSubmit` | Sync `sessionTitle` (the `/resume` picker label) to the registered name. |
+| `UserPromptSubmit` | Sync `sessionTitle` (the `/resume` picker label) to the registered name — `session_id` match only, see [Identity](#identity). |
 | `SessionEnd` | Unregister **the entry whose `session_id` matches the hook input's** — never a bare hostname match, which used to let any exiting native session delete a colleague's registration. Also deletes its own session-cwd record. Skipped on `exit_reason=resume`. |
 
 An entry whose `session_id` has drifted (a `/resume` renumbers it while the registry keeps the pre-resume value) is consequently no longer deleted by `SessionEnd`. That is intended: it expires on its own when the heartbeat lease runs out, which is a correct liveness signal rather than a guess.

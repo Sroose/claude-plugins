@@ -1,5 +1,9 @@
 # Changelog — agent-bus
 
+## 0.2.1 — 2026-10-13
+
+- **Display labels no longer borrow another session's name.** `user_prompt_submit.py` (`sessionTitle`) and `statusline_fragment.py` match on `session_id` only. Their unique-hostname fallback had no `host_cwd` check — contrary to the 0.2.0 entry below, which said they used "the same resolution as everything else" — so on a Mac a single registration on the shared hostname (even one with a long-expired lease) became the title of every unregistered native session, whatever its directory. Seen in the field: sessions in unrelated directories all labelled `<OTHER-AGENT>-<slug>`. The fallback exists for a watcher holding a stale `session_id` after `/resume`; these scripts always receive the current one, so they never needed it. Trade-off: after a `/resume` the label stays blank until `agent-bus register <NAME>` refreshes the entry's `session_id` (auto-rebind leaves a same-hostname entry untouched).
+
 ## 0.2.0 — 2026-09-01
 
 Five field failures, all rooted in the same wrong assumption: that `socket.gethostname()` identifies a session. It does for containers (each gets a unique hostname) but **every native session on one Mac shares a hostname**, so to the bus they were all the same agent — and a registry file was treated as proof that somebody was listening, which it never was.

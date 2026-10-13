@@ -2,12 +2,13 @@
 """Statusline fragment for agent-bus. Prints the registered agent name for
 THIS session, or empty if unregistered.
 
-Resolution order matches bus.py my_entry(): the session_id from CC's session
-JSON on stdin (falling back to $CLAUDE_CODE_SESSION_ID), then a *unique*
-hostname match. Hostname alone is not an identity — every native session on a
-Mac shares one, so a first-match wins scan labels them all the same.
+Matches on the session_id from CC's session JSON on stdin (falling back to
+$CLAUDE_CODE_SESSION_ID) only — deliberately NOT bus.py my_entry()'s hostname
+fallback, which exists for a watcher holding a stale session_id after /resume.
+The statusline always has the current one, so a hostname match can only name
+some other session: every native session on a Mac shares one hostname.
 """
-import json, sys, os, glob, socket
+import json, sys, os, glob
 
 BUS_ROOT = os.environ.get("BUS_ROOT", os.path.expanduser("~/.claude/bus"))
 
@@ -23,7 +24,6 @@ try:
 except Exception:
     sid = ""
 sid = sid or os.environ.get("CLAUDE_CODE_SESSION_ID", "")
-host = socket.gethostname()
 
 entries = []
 for f in sorted(glob.glob(os.path.join(BUS_ROOT, "registry", "*.json"))):
@@ -38,10 +38,6 @@ for d in entries:
     if sid and d.get("session_id") == sid:
         name = d.get("name", "")
         break
-else:
-    mine = [d for d in entries if host and d.get("container") == host]
-    if len(mine) == 1:
-        name = mine[0].get("name", "")
 
 if name:
     print(name)
