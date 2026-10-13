@@ -1,11 +1,17 @@
 ---
 name: agent
-description: Register, unregister, send, receive, list, or check the inbox for messages between Claude Code sessions on this machine. Triggers on user prompts like "register me as X", "ask Y about...", "/agent ...", or on incoming `📥 ← from ...` inbox notifications.
+description: Register, unregister, send, receive, list, or check the inbox for messages between Claude Code sessions on this machine. Triggers on user prompts like "register me as X", "ask Y about...", "/agent ...", or on incoming `📥 ← from ...` inbox notifications. For messaging between native (non-container) sessions, prefer the built-in ListAgents / SendMessage tools; use this when a container session is involved or the user names agent-bus.
 ---
 
 # agent-bus
 
 A thin wrapper over the `agent-bus` command (a launcher the plugin puts on the Bash tool's PATH). Do not extend-think, do not delegate to a sub-agent — these are one-liners.
+
+## Host session? Use the built-in tools first
+
+On a native host session (no `$HOST_CWD`, not in Docker), Claude Code's own `ListAgents` / `SendMessage` tools already reach every other native session on the machine — no registration, no watcher. Prefer them there. The bus is for traffic that involves a **container** session (ASSUMPTION, untested: those are not reachable through the built-in tools), or when the user explicitly asks for agent-bus.
+
+The built-in tools address a session by its title, and a registered session's title is its bus name (the `UserPromptSubmit` hook sets it — unless the user renamed the session with `/rename`, which always wins). So `agent-bus register <NAME>` also gives a session a stable built-in address.
 
 ## Commands → one Bash call each
 

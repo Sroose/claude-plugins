@@ -183,7 +183,7 @@ The watcher is started by the **`Monitor` tool** — never as a background Bash 
 | Hook | Purpose |
 |---|---|
 | `SessionStart` | Inject protocol guidance into Claude's context, plus the `[agent-bus live state]` block (fires on `source=compact` too — see [Compaction](#compaction)). Record `session-cwd/<session_id>.json`. If a cwd-memo exists for the current host_cwd and the name is free, auto-rebind (write the registry entry, with lease fields) and tell Claude to start the watcher. |
-| `UserPromptSubmit` | Sync `sessionTitle` (the `/resume` picker label) to the registered name — `session_id` match only, see [Identity](#identity). |
+| `UserPromptSubmit` | Sync `sessionTitle` (the `/resume` picker label, and the address CC's built-in `SendMessage` uses) to the registered name — `session_id` match only, see [Identity](#identity). Skipped for good once the transcript holds a user `/rename` (a `system`/`local_command` record starting `<command-name>/rename</command-name>`; a bare string match would trip on tool calls that merely mention it). |
 | `SessionEnd` | Unregister **the entry whose `session_id` matches the hook input's** — never a bare hostname match, which used to let any exiting native session delete a colleague's registration. Also deletes its own session-cwd record. Skipped on `exit_reason=resume`. |
 
 An entry whose `session_id` has drifted (a `/resume` renumbers it while the registry keeps the pre-resume value) is consequently no longer deleted by `SessionEnd`. That is intended: it expires on its own when the heartbeat lease runs out, which is a correct liveness signal rather than a guess.

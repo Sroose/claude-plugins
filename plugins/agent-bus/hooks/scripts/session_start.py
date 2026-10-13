@@ -138,8 +138,22 @@ MONITOR_NOTE = (
     "tell the user instead of improvising."
 )
 
+# Claude Code's built-in ListAgents/SendMessage already reach every native
+# session on this machine, so on the host the bus is only needed to talk to a
+# container. $HOST_CWD is what the Docker wrappers set; /.dockerenv covers one
+# that doesn't. ASSUMPTION (untested): container sessions are NOT reachable
+# through the built-in tools — that is the bus's remaining job.
+in_container = bool(os.environ.get("HOST_CWD")) or os.path.exists("/.dockerenv")
+NATIVE_NOTE = (
+    "This is a native host session. To message other sessions on this machine, "
+    "prefer Claude Code's built-in `ListAgents` / `SendMessage` tools (if not visible they are "
+    "deferred: load them with ToolSearch). Use agent-bus only when a container session is "
+    "involved, or when the user asks for it by name.\n\n"
+)
+
 guidance = (
     "[agent-bus plugin active]\n\n"
+    + ("" if in_container else NATIVE_NOTE) +
     "Invoke the bus via the `agent-bus` launcher (on PATH while the plugin is "
     "enabled): `agent-bus register <NAME>`, `agent-bus send <TO> \"...\"`, "
     "`agent-bus whoami`, etc. Run each bare — no `$(...)`, pipes, or `&&` — so it "

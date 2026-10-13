@@ -1,5 +1,10 @@
 # Changelog — agent-bus
 
+## 0.2.2 — 2026-10-13
+
+- **`/rename` wins.** The `UserPromptSubmit` hook no longer sets `sessionTitle` on a session the user renamed by hand. It detects the rename from the transcript (`transcript_path` in the hook input): only CC's own record for the command counts — `type: system`, `subtype: local_command`, content starting `<command-name>/rename</command-name>` — because the bare string also shows up in tool calls and pasted text. Scanning an 86 MB transcript takes ~0.05 s. A forked session inherits its parent's rename.
+- **Native host sessions are pointed at the built-in tools.** Claude Code's `ListAgents` / `SendMessage` reach every native session on the machine without registration or a watcher. The SessionStart guidance (when neither `$HOST_CWD` nor `/.dockerenv` is present) and SKILL.md now say to prefer them, and to use the bus when a container session is involved. ASSUMPTION, untested: container sessions are not reachable through the built-in tools.
+
 ## 0.2.1 — 2026-10-13
 
 - **Display labels no longer borrow another session's name.** `user_prompt_submit.py` (`sessionTitle`) and `statusline_fragment.py` match on `session_id` only. Their unique-hostname fallback had no `host_cwd` check — contrary to the 0.2.0 entry below, which said they used "the same resolution as everything else" — so on a Mac a single registration on the shared hostname (even one with a long-expired lease) became the title of every unregistered native session, whatever its directory. Seen in the field: sessions in unrelated directories all labelled `<OTHER-AGENT>-<slug>`. The fallback exists for a watcher holding a stale `session_id` after `/resume`; these scripts always receive the current one, so they never needed it. Trade-off: after a `/resume` the label stays blank until `agent-bus register <NAME>` refreshes the entry's `session_id` (auto-rebind leaves a same-hostname entry untouched).

@@ -4,6 +4,8 @@ Let two or more Claude Code sessions on the same machine talk to each other.
 
 Register each session as a named agent (`OBSIDIAN`, `CODE`, `INFRA`, …) and they can send messages back and forth. Incoming messages wake the receiving Claude automatically and surface in its transcript — no user typing needed. Especially useful when agents on different codebases need to coordinate (e.g. contract negotiation, design alignment, sharing answers without you ferrying them by hand).
 
+> **Deprecated for native-only setups.** Claude Code's built-in `ListAgents` / `SendMessage` tools already let native sessions on one machine message each other, with no plugin. agent-bus is only needed when a session runs **inside a container** (e.g. a Docker wrapper), which the built-in tools are assumed not to reach (untested). Registering still names the session, which also serves as its built-in address — unless you `/rename` it yourself, which always wins.
+
 ![demo](demo/demo.gif)
 <!-- regenerate with: `vhs demo/res/demo.tape` from the repo root -->
 

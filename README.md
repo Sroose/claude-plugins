@@ -33,6 +33,8 @@ Then install individual plugins:
 ### [agent-bus](plugins/agent-bus/) — inter-session messaging
 
 > Let two or more Claude Code sessions on the same machine talk to each other. Register each session as a named agent (`OBSIDIAN`, `CODE`, `INFRA`, …) and they exchange messages, with incoming messages auto-surfacing in the recipient's transcript — no user typing needed.
+>
+> **Only needed when a session runs in a container.** Native sessions on one machine can use Claude Code's built-in `ListAgents` / `SendMessage` instead.
 
 ```
 /plugin install agent-bus@sroose-plugins
