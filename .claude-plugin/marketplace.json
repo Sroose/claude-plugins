@@ -17,7 +17,7 @@
     },
     {
       "name": "better-statusline",
-      "description": "Status line showing model, 5-hour and weekly rate-limit usage with resets, context-window %, and working directory. Ships /better-statusline:apply to wire it into ~/.claude/settings.json.",
+      "description": "Compact status line: model, 5-hour and weekly rate-limit usage with resets, context-window %, prompt-cache countdown, and a clickable working directory. Ships /better-statusline:apply to wire it into ~/.claude/settings.json.",
       "source": "./plugins/better-statusline"
     },
     {

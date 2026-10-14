@@ -2,17 +2,27 @@
 
 A richer Claude Code status line:
 
-![better-statusline](statusline.png)
+![better-statusline](statusline.svg)
 
-One line showing:
+One compact line:
 
-- **Model** in use
-- **5-hour** rate-limit usage + when it resets
-- **Weekly** rate-limit usage + reset day
-- **Context-window** % used
-- **Working directory** (and the host path via `$HOST_CWD` when set, e.g. containerized sessions)
+```
+Opus 5.5 (1M) │ 5H 2% (22:59) │ WEEK 13% (sunday) │ CTX 12% │ cache █████ 59m │ ~/code/projectx
+```
 
-Percentages turn red at ≥ 75%.
+- **Model** in use (`(1M context)` shortened to `(1M)`)
+- **5H**: 5-hour rate-limit usage + the clock time it resets
+- **WEEK**: weekly rate-limit usage + reset day
+- **CTX**: context-window % used
+- **cache**: prompt-cache countdown with a 5-cell bar (needs Claude Code ≥ 2.1.251, which passes
+  `prompt_cache` to the status line; the segment is omitted on older versions)
+- **Working directory**, `~`-shortened and an OSC 8 `file://` link, so cmd-click opens it in
+  Finder in terminals that support it (Ghostty, iTerm2, WezTerm, …). With `$HOST_CWD` set
+  (containerized sessions) the host path is shown in parens and is the link target.
+
+Labels and scaffolding are grey; only values carry color. Percentages turn yellow at ≥ 60% and
+red at ≥ 80%. The cache turns yellow in the last 20% of its TTL (1h tier: 12 min; 5m tier:
+60 s), red in the last 5%, and shows `cold` once expired.
 
 ## Install
 
@@ -46,6 +56,9 @@ the line keeps working across plugin updates. It degrades gracefully: prints not
 plugin is disabled/uninstalled, and shows `[better-statusline: python3 not found]` if `python3`
 isn't on PATH (rather than a silent blank line). It always exits 0 so the status-line subsystem
 never errors.
+
+`refreshInterval: 30` makes Claude Code re-run the script every 30 s, so the cache countdown
+keeps moving while you're idle. That's a local re-render: no API call, no tokens.
 
 ## Uninstall
 

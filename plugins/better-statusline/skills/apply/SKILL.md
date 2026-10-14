@@ -27,9 +27,13 @@ The `statusLine` block, exactly:
 ```json
 "statusLine": {
   "type": "command",
-  "command": "sh -c 'f=$(ls -1 \"$HOME\"/.claude/plugins/cache/*/better-statusline/*/lib/statusline.py 2>/dev/null | sort -V | tail -1); [ -n \"$f\" ] || exit 0; command -v python3 >/dev/null 2>&1 || { echo \"[better-statusline: python3 not found]\"; exit 0; }; exec python3 \"$f\"'"
+  "command": "sh -c 'f=$(ls -1 \"$HOME\"/.claude/plugins/cache/*/better-statusline/*/lib/statusline.py 2>/dev/null | sort -V | tail -1); [ -n \"$f\" ] || exit 0; command -v python3 >/dev/null 2>&1 || { echo \"[better-statusline: python3 not found]\"; exit 0; }; exec python3 \"$f\"'",
+  "refreshInterval": 30
 }
 ```
+
+`refreshInterval` re-runs the script every 30 s so the prompt-cache countdown keeps ticking
+while the session is idle. It is a local re-render only: no API call, no tokens.
 
 ## Steps
 
@@ -38,7 +42,9 @@ The `statusLine` block, exactly:
 2. **Inspect** the current `statusLine` key:
    - **Absent** → add the block above.
    - **Present and `command` already contains `better-statusline`** → it is already wired up.
-     Report "already configured" and stop. Do not rewrite.
+     If `refreshInterval` is missing, add `"refreshInterval": 30` and nothing else (keep the
+     user's `command`, which may carry their own additions). Otherwise report "already
+     configured" and stop. Do not rewrite.
    - **Present but points elsewhere** (a different status line) → **do not overwrite silently.**
      Show the user their current `statusLine.command` and the new one, and ask them to confirm
      the replacement before editing.
