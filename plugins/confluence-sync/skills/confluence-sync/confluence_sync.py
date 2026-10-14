@@ -150,7 +150,30 @@ def fetch_page_json(url: str, token: str) -> dict:
         sys.exit(EXIT_GENERIC)
 
 
+# Confluence inline task lists (checkboxes) render in export_view as
+#   <ul class="inline-task-list">
+#     <li class="checked" data-inline-task-id="2"><span>done thing</span></li>
+#     <li data-inline-task-id="3"><span>not done thing</span></li>
+#   </ul>
+# The state lives only in the li's class attribute, which markdownify discards —
+# every option comes out as a plain bullet and a filled-in checklist reads as an
+# empty one. Match on data-inline-task-id rather than walking the <ul> so nested
+# task lists are handled too.
+TASK_LI_RE = re.compile(r"<li([^>]*\bdata-inline-task-id\b[^>]*)>", re.IGNORECASE)
+
+
+def mark_inline_tasks(html: str) -> str:
+    def repl(m: re.Match) -> str:
+        attrs = m.group(1)
+        cls = re.search(r'class="([^"]*)"', attrs, re.IGNORECASE)
+        checked = bool(cls) and "checked" in cls.group(1).split()
+        return f"<li{attrs}>{'[x] ' if checked else '[ ] '}"
+
+    return TASK_LI_RE.sub(repl, html)
+
+
 def confluence_html_to_md(html: str) -> str:
+    html = mark_inline_tasks(html)
     # Convert Confluence <ac:structured-macro ac:name="code"> blocks to <pre><code>
     html = re.sub(
         r'<ac:structured-macro[^>]*ac:name="code"[^>]*>.*?'

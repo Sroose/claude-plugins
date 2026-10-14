@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.3 — 2026-08-03
+
+- **Inline task lists (checkboxes) now keep their state.** Confluence renders them as `<li class="checked" data-inline-task-id="N">`, and the state lives only in that class attribute, which markdownify discards. Every option came out as a plain bullet, so a fully answered checklist read as an empty one, and any conclusion drawn from it was wrong in a way that looked plausible. Items now convert to `- [x] ` / `- [ ] `. Matching is on `data-inline-task-id` rather than on the enclosing `<ul class="inline-task-list">`, so nested task lists are handled too.
+  - Note for the print/PDF route: Confluence's own PDF export draws the checkmarks as vectors, so PDF text extraction does **not** recover the state. The API `export_view` HTML this script uses is the reliable source.
+
 ## 0.1.2 — 2026-05-28
 
 - **Dropped the `~/.claude/confluence-sync/` script symlink; helper is now resolved at call time** via `find ~/.claude/plugins/cache -path '*confluence-sync*/confluence_sync.py' | sort -V | tail -1`. Same rationale as agent-bus 0.1.3 — a shared symlink can't serve a container and the host simultaneously. The SessionStart hook (whose only job was the symlink) has been removed entirely.

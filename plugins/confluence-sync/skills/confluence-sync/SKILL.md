@@ -174,4 +174,5 @@ python3 "$CSYNC" set-token '<value>'
 - Never `git add` `X.CUR*.md`, `X.NEW.md`, or anything in `~/.claude/secrets/`. Suggest a `.gitignore` entry for `*.CUR*.md` and `*.NEW.md` if the project doesn't have one.
 - Never echo the session cookie back in chat after the user has provided it.
 - The script is read-only against Confluence by design (see the hard rule at the top).
+- Confluence checkboxes convert to `- [x] ` / `- [ ] ` (since 0.1.3). Trust those markers: they come from the `checked` class in the page HTML. If you ever see a page whose checklists are all plain bullets, suspect the conversion before concluding the checklist is unanswered, and never treat an option list as "not filled in" without a marker to back it. Confluence's PDF export draws the checkmarks as vectors, so a PDF is not a usable cross-check.
 - If you find yourself about to edit a markdown file that's in the registry but you have not run Begin, stop and run Begin first.
