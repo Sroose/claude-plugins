@@ -1,5 +1,9 @@
 # Changelog — agent-bus
 
+## 0.2.3 — 2026-10-18
+
+- **The cwd-memo only applies on `/resume`.** The memo is keyed on the host directory, not on a session, so every brand-new session in a directory inherited whatever experiment last registered there — sessions in `$HOME` kept waking up as `LOGMONITOR`, five months after that agent mattered, complete with its stale inbox and a "not listening" warning for anyone who messaged it. The `SessionStart` hook now auto-rebinds only when its `source` is `resume`; `startup` and `clear` get a one-line `[host_cwd memo — not applied]` hint (remembered name, when it was registered, the `agent-bus register <NAME>` that reclaims it) and nothing is written. The hook records the verdict as `resumed` in `session-cwd/<session_id>.json`, `compact` carries the prior flag forward instead of resetting it, and `watch.py` — which rebinds from the memo too but has no `source` of its own — reads that record first and skips when it is absent or false. `register`, `unregister` and `SessionEnd` are unchanged: registering still writes the memo, an explicit `unregister` still deletes it.
+
 ## 0.2.2 — 2026-10-13
 
 - **`/rename` wins.** The `UserPromptSubmit` hook no longer sets `sessionTitle` on a session the user renamed by hand. It detects the rename from the transcript (`transcript_path` in the hook input): only CC's own record for the command counts — `type: system`, `subtype: local_command`, content starting `<command-name>/rename</command-name>` — because the bare string also shows up in tool calls and pasted text. Scanning an 86 MB transcript takes ~0.05 s. A forked session inherits its parent's rename.

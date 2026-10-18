@@ -1,5 +1,5 @@
 {
-  "description": "agent-bus hooks: SessionStart sets up the bus.py symlink, injects protocol guidance, and nudges auto-rebind from cwd-memo. UserPromptSubmit syncs sessionTitle. SessionEnd auto-unregisters on clean exits.",
+  "description": "agent-bus hooks: SessionStart injects protocol guidance and live bus state, records session-cwd (with the resume flag), and auto-rebinds from cwd-memo on /resume only. UserPromptSubmit syncs sessionTitle. SessionEnd auto-unregisters on clean exits.",
   "hooks": {
     "UserPromptSubmit": [
       {

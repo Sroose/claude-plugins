@@ -42,8 +42,8 @@ for f in glob.glob(str(BUS_ROOT / "registry" / "*.json")):
     except Exception:
         continue
 
-# The cwd-memo is deliberately kept (that's what lets the next session in this
-# host directory auto-rebind); only this session's own host_cwd record goes.
+# The cwd-memo is deliberately kept (that's what lets a /resume of a session in
+# this host directory auto-rebind); only this session's own host_cwd record goes.
 if re.match(r"^[A-Za-z0-9_.-]+$", sid):
     try:
         (BUS_ROOT / "session-cwd" / f"{sid}.json").unlink()

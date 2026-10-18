@@ -1,7 +1,7 @@
 {
   "name": "agent-bus",
-  "version": "0.2.2",
-  "description": "Message bus between Claude Code sessions, for setups with containerized sessions. Native-only setups: use Claude Code's built-in ListAgents / SendMessage instead. Each session can register a name (OBSIDIAN, CODE, …) and exchange messages with other named sessions through ~/.claude/bus/.",
+  "version": "0.2.3",
+  "description": "Message bus between Claude Code sessions, for setups with containerized sessions. Native-only setups: use Claude Code's built-in ListAgents / SendMessage instead. Each session can register a name (OBSIDIAN, CODE, \u2026) and exchange messages with other named sessions through ~/.claude/bus/.",
   "author": {
     "name": "Sroose"
   }

@@ -137,9 +137,10 @@ def watcher_state():
 
 
 def memo_path_for(host_cwd: str) -> Path:
-    """The cwd-memo file path for a given host_cwd. Survives unregister so a
-    later session in the same host directory (e.g. when a Docker container is
-    re-created on /resume) can auto-rebind to the same agent name."""
+    """The cwd-memo file path for a given host_cwd. Survives SessionEnd so a
+    /resume in the same host directory (e.g. when a Docker container is
+    re-created) can auto-rebind to the same agent name. Brand-new sessions
+    there do not inherit it (0.2.3)."""
     h = hashlib.sha256((host_cwd or "").encode()).hexdigest()[:16]
     return BUS_ROOT / "cwd-memo" / f"{h}.json"
 
@@ -427,8 +428,9 @@ def cmd_register(args):
         "host_cwd": host_cwd,
     }
     entry.write_text(json.dumps(data, indent=2))
-    # Write the cwd-memo so a future session in this host_cwd can auto-rebind.
-    # Survives /resume (which creates a new container) and clean exits.
+    # Write the cwd-memo so a /resume in this host_cwd can auto-rebind.
+    # Survives /resume (which creates a new container) and clean exits; only
+    # applied to resumed sessions, never to brand-new ones (0.2.3).
     if host_cwd:
         memo = memo_path_for(host_cwd)
         memo.write_text(json.dumps({
@@ -487,8 +489,8 @@ def cmd_unregister(args):
     if not name:
         print("not currently registered", file=sys.stderr); return 0
     (BUS_ROOT / "registry" / f"{name}.json").unlink()
-    # Explicit unregister also forgets the cwd-memo, so a future session in
-    # this host_cwd won't auto-rebind to the old name. Clean exit via SessionEnd
+    # Explicit unregister also forgets the cwd-memo, so a /resume in this
+    # host_cwd won't auto-rebind to the old name. Clean exit via SessionEnd
     # keeps the memo (only deletes the registry entry).
     host_cwd = resolve_host_cwd()
     if host_cwd:

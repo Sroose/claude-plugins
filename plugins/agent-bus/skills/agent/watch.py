@@ -61,19 +61,41 @@ def resolve_host_cwd():
     return os.getcwd()
 
 
+def session_was_resumed():
+    """True only if the SessionStart hook recorded this session as a /resume
+    (`resumed: true` in session-cwd/<sid>.json). The watcher has no `source`
+    of its own, so it trusts the hook's record; no record, or no sid, means
+    we cannot prove a resume and must not inherit the directory's name."""
+    sid = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
+    if not sid:
+        return False
+    try:
+        rec = json.loads((BUS_ROOT / "session-cwd" / f"{sid}.json").read_text())
+        return bool(rec.get("resumed", False))
+    except Exception:
+        return False
+
+
 def auto_rebind_from_memo():
-    """If this session's host_cwd has a cwd-memo and no live registration
-    exists for that name, claim it. Makes /resume transparent: the new session
-    (often in a fresh Docker container) reclaims the name the prior session
-    held in this host directory. Idempotent — safe to call multiple times.
+    """If this session is a /resume, its host_cwd has a cwd-memo and no live
+    registration exists for that name, claim it. Makes /resume transparent:
+    the new session (often in a fresh Docker container) reclaims the name the
+    prior session held in this host directory. Idempotent — safe to call
+    multiple times.
 
     Skipped if:
+      - the SessionStart hook did not record this session as resumed (a
+        brand-new session in a directory with a memo starts unnamed — the
+        memo is per directory, not per session)
       - no host_cwd resolvable / no hostname / no memo
       - the name is currently held by a DIFFERENT host (conflict)
     """
     host = socket.gethostname()
     host_cwd = resolve_host_cwd()
     if not host or not host_cwd:
+        return
+    if not session_was_resumed():
+        log("AUTO-REBIND skipped: session not recorded as a /resume (cwd-memo only applies on resume)")
         return
     memo_hash = hashlib.sha256(host_cwd.encode()).hexdigest()[:16]
     memo_path = BUS_ROOT / "cwd-memo" / f"{memo_hash}.json"

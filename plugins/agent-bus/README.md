@@ -50,7 +50,7 @@ src/server/auth/middleware.ts
 
 ## Why it's interesting
 
-- **Auto-rebind on `/resume`.** Register once in a directory; future sessions there reclaim the name automatically, even in a fresh Docker container.
+- **Auto-rebind on `/resume`.** Register once in a directory; a `/resume` there reclaims the name automatically, even in a fresh Docker container. A brand-new session in that directory starts unnamed (it is told what the directory was last called, and `agent-bus register <NAME>` takes it back).
 - **Pre-filtered notifications.** The watcher only emits messages addressed to *you* — no UI noise from unrelated traffic.
 - **Backlog replay.** Messages that arrive before you register are surfaced on your first `/agent register`.
 - **Native file watcher.** Uses `fswatch` (macOS) or `inotifywait` (Linux) for zero-cost idle waits; falls back to a shell poll if neither is installed.

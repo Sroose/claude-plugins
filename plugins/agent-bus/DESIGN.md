@@ -13,10 +13,10 @@ How the plugin works under the hood, and the design choices behind it. Read this
 | Liveness | Each registration carries a watcher heartbeat lease; no refresh for 300s ⇒ the session is dead — see [Heartbeat leases](#heartbeat-leases) |
 | One watcher per host | `log/watcher-<hostname>.pid`: a starting watcher SIGTERMs the previous one |
 | Compaction resilience | State is re-derivable (`agent-bus status`) and re-injected by `SessionStart`, which also fires on `source=compact` — see [Compaction](#compaction) |
-| Surviving `/resume` | A `cwd-memo` per host directory persists past unregister; the next session's watcher auto-rebinds to that name on startup |
+| Surviving `/resume` | A `cwd-memo` per host directory persists past SessionEnd; a **resumed** session (hook `source=resume`) auto-rebinds to that name. Brand-new sessions in the directory do not — see [Auto-rebind via cwd-memo](#auto-rebind-via-cwd-memo) |
 | Conflict avoidance | One decision table decides refresh / reclaim / refuse — see [Claiming a name](#claiming-a-name). A live holder is never displaced silently; `--force` is the confirmed override |
 | Late delivery | Messages that arrived before registration are surfaced on `/agent register` |
-| Clean exit | `SessionEnd` hook unregisters **only the exiting session's own entry** (matched on `session_id`). The cwd-memo persists so the next session in the same host directory rebinds automatically. |
+| Clean exit | `SessionEnd` hook unregisters **only the exiting session's own entry** (matched on `session_id`). The cwd-memo persists so a `/resume` in the same host directory rebinds automatically. |
 
 ## State layout
 
@@ -132,7 +132,11 @@ The `SessionStart` hook now records `session-cwd/<session_id>.json` = `{"host_cw
 
 When you `/agent register OBSIDIAN`, the plugin writes a memo to `~/.claude/bus/cwd-memo/<sha-of-host_cwd>.json` containing `{name: OBSIDIAN, host_cwd: …}`.
 
-On `SessionEnd`, that session's own registry entry is removed, but the memo is **kept**. When a fresh session starts in the same host directory, its watcher reads the memo on startup, finds no live registration for the remembered name, and claims it automatically.
+On `SessionEnd`, that session's own registry entry is removed, but the memo is **kept**. When the session is **resumed** in the same host directory, the `SessionStart` hook (`source == "resume"`) reads the memo, finds no live registration for the remembered name, and claims it; the watcher repeats the same check when it starts, for the case where the hook could not write.
+
+**Resume only (0.2.3).** A brand-new session (`source` `startup` or `clear`) in a directory with a memo does **not** inherit the name. The memo is keyed on the directory, not on the session, and directories like `$HOME` or `~/code` host many unrelated sessions — before 0.2.3 every one of them woke up as whatever experiment last registered there (LOGMONITOR, months later). The new session instead gets a one-line `[host_cwd memo — not applied]` hint naming the remembered agent and the `agent-bus register <NAME>` command that reclaims it; nothing is written to the registry.
+
+The hook is the only component that sees `source`, so it records the verdict as `resumed: true|false` in `session-cwd/<session_id>.json` (alongside `host_cwd`), and `watch.py` reads that record before its own memo rebind. A `compact` re-fires the hook on a running session and carries the prior flag forward rather than resetting it. No record, or no `CLAUDE_CODE_SESSION_ID`, counts as *not resumed*: the watcher cannot prove a resume, so it does not inherit.
 
 `/agent unregister` (the explicit user command) **does** delete the memo — that's the opt-out path. `SessionEnd` (automatic cleanup on clean exit) does not.
 
@@ -182,7 +186,7 @@ The watcher is started by the **`Monitor` tool** — never as a background Bash 
 
 | Hook | Purpose |
 |---|---|
-| `SessionStart` | Inject protocol guidance into Claude's context, plus the `[agent-bus live state]` block (fires on `source=compact` too — see [Compaction](#compaction)). Record `session-cwd/<session_id>.json`. If a cwd-memo exists for the current host_cwd and the name is free, auto-rebind (write the registry entry, with lease fields) and tell Claude to start the watcher. |
+| `SessionStart` | Inject protocol guidance into Claude's context, plus the `[agent-bus live state]` block (fires on `source=compact` too — see [Compaction](#compaction)). Record `session-cwd/<session_id>.json` (with `resumed`). If `source=resume`, a cwd-memo exists for the current host_cwd and the name is free, auto-rebind (write the registry entry, with lease fields) and tell Claude to start the watcher. |
 | `UserPromptSubmit` | Sync `sessionTitle` (the `/resume` picker label, and the address CC's built-in `SendMessage` uses) to the registered name — `session_id` match only, see [Identity](#identity). Skipped for good once the transcript holds a user `/rename` (a `system`/`local_command` record starting `<command-name>/rename</command-name>`; a bare string match would trip on tool calls that merely mention it). |
 | `SessionEnd` | Unregister **the entry whose `session_id` matches the hook input's** — never a bare hostname match, which used to let any exiting native session delete a colleague's registration. Also deletes its own session-cwd record. Skipped on `exit_reason=resume`. |
 

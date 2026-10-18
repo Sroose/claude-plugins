@@ -15,8 +15,12 @@ Four jobs:
    the *model's* knowledge that they exist — after which the agent re-registers
    or starts a second watcher. Re-stating the facts after every compaction is
    the fix.
-4. Auto-rebind if there's a cwd-memo indicating this host directory was
-   previously registered as some agent name.
+4. Auto-rebind — on `source == "resume"` ONLY — if there's a cwd-memo
+   indicating this host directory was previously registered as some agent
+   name. A brand-new session (`startup`, `clear`) starts unnamed even when a
+   memo exists; it gets a one-line hint instead. The hook also records the
+   resume flag in `session-cwd/<session_id>.json` so watch.py (which has no
+   `source` of its own) applies the same rule when it starts.
 
 (No symlink maintenance. The helper is resolved at call time via a
 cache-scoped `find … | sort -V | tail -1` — see SKILL.md. Symlinks were
@@ -121,11 +125,24 @@ host_cwd = os.environ.get("HOST_CWD", "") or inp.get("cwd", "")
 # Persist host_cwd for this session_id. bus.py/watch.py prefer this over
 # os.getcwd(), which drifts the moment the session `cd`s and used to make one
 # session write two different cwd-memos.
+#
+# `resumed` is what gates the cwd-memo auto-rebind (here and in watch.py): only
+# a `/resume` inherits the directory's remembered name. A `compact` fires on an
+# already-running session, so it must not reset the flag — read the prior
+# record and carry it forward.
+resumed = source == "resume"
 if sid and host_cwd and re.match(r"^[A-Za-z0-9_.-]+$", sid):
     try:
         d = BUS_ROOT / "session-cwd"
         d.mkdir(parents=True, exist_ok=True)
-        (d / f"{sid}.json").write_text(json.dumps({"host_cwd": host_cwd}, indent=2))
+        rec = d / f"{sid}.json"
+        if source == "compact":
+            try:
+                resumed = bool(json.loads(rec.read_text()).get("resumed", False))
+            except Exception:
+                resumed = False
+        rec.write_text(json.dumps({"host_cwd": host_cwd, "source": source,
+                                   "resumed": resumed}, indent=2))
     except Exception:
         pass
 
@@ -170,12 +187,19 @@ guidance = (
     + MONITOR_NOTE
 )
 
-# If a cwd-memo exists for this host_cwd, and this container isn't already
-# registered, and the remembered name isn't currently held by some other live
-# container, nudge Claude to auto-rebind on its next turn. This makes /resume
-# (which spawns a new container with a fresh hostname) transparent: the
-# resumed session reclaims its identity without the user having to type
-# /agent register manually.
+# If a cwd-memo exists for this host_cwd, this session is a /resume, this
+# container isn't already registered, and the remembered name isn't currently
+# held by some other live container: auto-rebind. This makes /resume (which
+# spawns a new container with a fresh hostname) transparent: the resumed
+# session reclaims its identity without the user having to type /agent
+# register manually.
+#
+# A brand-new session (startup, clear) does NOT inherit the name: the memo is
+# keyed on the directory, not the session, and directories like $HOME or
+# ~/code host many unrelated sessions. Those get a one-line hint and nothing
+# is written. `compact` never rebinds either — a compacting session that was
+# registered is already covered by the live-state block below.
+memo_hint = ""
 if host_cwd:
     memo_hash = hashlib.sha256(host_cwd.encode()).hexdigest()[:16]
     memo_path = BUS_ROOT / "cwd-memo" / f"{memo_hash}.json"
@@ -183,7 +207,24 @@ if host_cwd:
         with open(memo_path) as fh:
             memo = json.load(fh)
         remembered = memo.get("name", "")
+        remembered_at = memo.get("last_registered_at", "")
     except Exception:
+        remembered = ""
+        remembered_at = ""
+
+    if remembered and source != "resume":
+        # Hint only on a genuinely new session. A `compact` re-fires on a
+        # running session, which either is registered already (live-state block
+        # below says so) or chose not to be — nagging it mid-session helps nobody.
+        if source != "compact":
+            memo_hint = (
+                f"\n\n[host_cwd memo — not applied]\n"
+                f"This host directory was last registered on the bus as `{remembered}`"
+                + (f" ({remembered_at})" if remembered_at else "") +
+                f", but this is a {source or 'new'} session, not a /resume, so it starts "
+                f"unregistered. Do not register on your own initiative; if the user wants "
+                f"that name back, `agent-bus register {remembered}` reclaims it."
+            )
         remembered = ""
 
     if remembered:
@@ -241,6 +282,7 @@ if host_cwd:
                 f"If the user wanted a different name, run `/agent unregister` then "
                 f"register the desired name instead."
             )
+guidance += memo_hint
 
 # ---- live state, re-injected on every start AND after every compaction ------
 # Runs last so it also reports a registration the auto-rebind above just wrote.
